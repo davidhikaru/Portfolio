@@ -1520,11 +1520,11 @@ export default function App() {
     if (!user || !photo.id) return;
     if (!window.confirm(`確定要永久刪除作品「${photo.title}」嗎？`)) return;
 
-    const storageMarker = "/gallery-photos/";
+    const storageMarker = "/portfolio-photos/";
     const idx = photo.src.indexOf(storageMarker);
     if (idx !== -1) {
       const storagePath = decodeURIComponent(photo.src.slice(idx + storageMarker.length));
-      await supabase.storage.from("gallery-photos").remove([storagePath]);
+      await supabase.storage.from("portfolio-photos").remove([storagePath]);
     }
 
     await supabase.from("photographs").delete().eq("id", photo.id).eq("user_id", user.id);
@@ -1558,7 +1558,7 @@ export default function App() {
         const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
         const { error: uploadErr } = await supabase.storage
-          .from("gallery-photos")
+          .from("portfolio-photos")
           .upload(fileName, optimizedBlob, {
             contentType: optimizedBlob.type || "image/jpeg",
           });
@@ -1570,7 +1570,7 @@ export default function App() {
 
         const {
           data: { publicUrl },
-        } = supabase.storage.from("gallery-photos").getPublicUrl(fileName);
+        } = supabase.storage.from("portfolio-photos").getPublicUrl(fileName);
 
         await supabase.from("photographs").insert({
           user_id: user.id,
