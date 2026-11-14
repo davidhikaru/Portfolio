@@ -49,7 +49,61 @@ type ActivityDay = {
   thumbnail: string;
 };
 
-// 保留 Mara Venn 作為平台預設精選駐館藝術家
+// 瀏覽器端高畫質圖片壓縮工具（長邊上限 2400px，保留展覽級畫質並大幅節省空間）
+async function compressImageForGallery(file: File, maxDimension = 2400, quality = 0.88): Promise<Blob> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+
+      if (width <= maxDimension && height <= maxDimension && file.size <= 1.2 * 1024 * 1024) {
+        resolve(file);
+        return;
+      }
+
+      if (width > height && width > maxDimension) {
+        height = Math.round((height * maxDimension) / width);
+        width = maxDimension;
+      } else if (height >= width && height > maxDimension) {
+        width = Math.round((width * maxDimension) / height);
+        height = maxDimension;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          resolve(blob || file);
+        },
+        "image/jpeg",
+        quality,
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+
+    img.src = objectUrl;
+  });
+}
+
 const MARA_VENN_PROFILE: ArtistProfile = {
   id: "featured-mara-venn",
   display_name: "Mara Venn",
@@ -257,7 +311,7 @@ function PhotoButton({
         transition={{ duration: 0.7, ease }}
         aria-label={`Open ${photo.title} in lightbox`}
       >
-        <img src={photo.src} alt={photo.alt} />
+        <img src={photo.src} alt={photo.alt} loading="lazy" />
         <span className="view-cue">VIEW</span>
       </motion.button>
       <Placard photo={photo} number={number} />
@@ -497,7 +551,7 @@ function DiscoverView({
   );
 }
 
-/* ==================== 藝術家個人畫廊（支援多展覽清單） ==================== */
+/* ==================== 藝術家個人畫廊 ==================== */
 function ArtistGalleryProfileView({
   artist,
   artistPhotos,
@@ -522,6 +576,7 @@ function ArtistGalleryProfileView({
   const [selectedDay, setSelectedDay] = useState<ActivityDay | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const [editName, setEditName] = useState(artist.display_name);
   const [editLocation, setEditLocation] = useState(artist.location);
@@ -537,6 +592,13 @@ function ArtistGalleryProfileView({
     setEditAvailable(artist.available_for_commissions);
     setIsEditing(false);
   }, [artist]);
+
+  const handleCopyShareLink = async () => {
+    const shareUrl = `${window.location.origin}/?artist=${encodeURIComponent(artist.id)}`;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2200);
+  };
 
   const selectDay = (day: ActivityDay) => {
     setSelectedDay(day);
@@ -561,7 +623,6 @@ function ArtistGalleryProfileView({
     setIsEditing(false);
   };
 
-  // 若藝術家尚未建立具名展覽，但有上傳照片，自動包裝成一個預設展覽「Selected Works」
   const displayExhibitions: Exhibition[] = useMemo(() => {
     if (artistExhibitions.length > 0) {
       return artistExhibitions;
@@ -619,13 +680,27 @@ function ArtistGalleryProfileView({
             {artist.display_name}
           </motion.h1>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "18px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
             <div className="availability" style={{ opacity: artist.available_for_commissions ? 1 : 0.45 }}>
               <span style={{ background: artist.available_for_commissions ? undefined : "#888" }} />
               {artist.available_for_commissions
                 ? "AVAILABLE FOR COMMISSIONS"
                 : "ARCHIVE / NOT TAKING COMMISSIONS"}
             </div>
+
+            <button
+              onClick={handleCopyShareLink}
+              style={{
+                fontSize: "10px",
+                letterSpacing: "0.16em",
+                padding: "5px 10px",
+                border: "1px solid currentColor",
+                cursor: "pointer",
+                opacity: 0.85,
+              }}
+            >
+              {copiedLink ? "✓ LINK COPIED" : "SHARE GALLERY LINK"}
+            </button>
 
             {isOwnProfile && (
               <button
@@ -776,13 +851,9 @@ function ArtistGalleryProfileView({
                 ? artistPhotos
                 : artistPhotos.filter((p) => p.exhibition_id === ex.id);
 
-              // 若為第一個具名展覽，也一併納入尚未指定展覽的未分類照片
               const mergedPhotos =
                 !ex.isVirtualDefault && idx === 0
-                  ? [
-                      ...exPhotos,
-                      ...artistPhotos.filter((p) => !p.exhibition_id),
-                    ]
+                  ? [...exPhotos, ...artistPhotos.filter((p) => !p.exhibition_id)]
                   : exPhotos;
 
               const cover =
@@ -944,7 +1015,7 @@ function ContactSheet({ photos, artistName }: { photos: Photograph[]; artistName
                 }
                 aria-label={`Open frame ${index + 1}, ${photo.title}`}
               >
-                <img src={photo.src} alt={photo.alt} />
+                <img src={photo.src} alt={photo.alt} loading="lazy" />
                 <span>{String(index + 1).padStart(2, "0")}A</span>
                 {selected && <i aria-label="Curated selection">SELECT</i>}
               </button>
@@ -973,8 +1044,18 @@ function ExhibitionView({
   onBackToArtist: () => void;
 }) {
   const [layout, setLayout] = useState<"editorial" | "contact">("editorial");
+  const [copiedExLink, setCopiedExLink] = useState(false);
   const coverPhoto = photos.find((p) => p.isCover) || photos[0];
   const exNumberStr = `EXHIBITION ${String(exhibitionIndex + 1).padStart(2, "0")} / ${exhibition.period}`;
+
+  const handleCopyExhibitionLink = async () => {
+    const shareUrl = `${window.location.origin}/?artist=${encodeURIComponent(
+      artist.id,
+    )}&exhibition=${encodeURIComponent(exhibition.id)}`;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopiedExLink(true);
+    setTimeout(() => setCopiedExLink(false), 2200);
+  };
 
   return (
     <motion.div
@@ -985,17 +1066,42 @@ function ExhibitionView({
       transition={{ duration: 0.5, ease }}
     >
       <section className="exhibition-intro" id="top">
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            marginBottom: "10px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              onClick={onBackToArtist}
+              style={{ fontSize: "11px", letterSpacing: "0.14em", opacity: 0.65, cursor: "pointer" }}
+            >
+              ← {artist.display_name.toUpperCase()}
+            </button>
+            <span>/</span>
+            <p className="eyebrow" style={{ margin: 0 }}>
+              {exNumberStr}
+            </p>
+          </div>
+
           <button
-            onClick={onBackToArtist}
-            style={{ fontSize: "11px", letterSpacing: "0.14em", opacity: 0.65, cursor: "pointer" }}
+            onClick={handleCopyExhibitionLink}
+            style={{
+              fontSize: "10px",
+              letterSpacing: "0.14em",
+              padding: "4px 9px",
+              border: "1px solid currentColor",
+              cursor: "pointer",
+              opacity: 0.8,
+            }}
           >
-            ← {artist.display_name.toUpperCase()}
+            {copiedExLink ? "✓ EXHIBITION LINK COPIED" : "SHARE EXHIBITION LINK"}
           </button>
-          <span>/</span>
-          <p className="eyebrow" style={{ margin: 0 }}>
-            {exNumberStr}
-          </p>
         </div>
 
         <motion.h1
@@ -1075,10 +1181,22 @@ function ExhibitionView({
 }
 
 export default function App() {
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const initialArtistParam = initialParams.get("artist");
+  const initialExParam = initialParams.get("exhibition");
+
   const [dark, setDark] = useState(false);
-  const [view, setView] = useState<"discover" | "artist" | "exhibition">("discover");
-  const [selectedArtistId, setSelectedArtistId] = useState<string>(MARA_VENN_PROFILE.id);
-  const [activeExhibitionId, setActiveExhibitionId] = useState<string | null>(null);
+  const [view, setView] = useState<"discover" | "artist" | "exhibition">(
+    initialExParam && initialArtistParam
+      ? "exhibition"
+      : initialArtistParam
+      ? "artist"
+      : "discover",
+  );
+  const [selectedArtistId, setSelectedArtistId] = useState<string>(
+    initialArtistParam || MARA_VENN_PROFILE.id,
+  );
+  const [activeExhibitionId, setActiveExhibitionId] = useState<string | null>(initialExParam);
 
   const [cloudProfiles, setCloudProfiles] = useState<ArtistProfile[]>([]);
   const [cloudExhibitions, setCloudExhibitions] = useState<Exhibition[]>([]);
@@ -1093,9 +1211,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // STUDIO：上傳目標展覽與建立新展覽表單狀態
   const [targetExhibitionId, setTargetExhibitionId] = useState<string>("");
   const [newExTitle, setNewExTitle] = useState("");
   const [newExLocation, setNewExLocation] = useState("TAIPEI, TW");
@@ -1103,11 +1221,51 @@ export default function App() {
   const [newExDesc, setNewExDesc] = useState("");
   const [creatingEx, setCreatingEx] = useState(false);
 
-  // STUDIO：單張照片編輯狀態（順序 1）
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [editPhotoTitle, setEditPhotoTitle] = useState("");
   const [editPhotoSpecs, setEditPhotoSpecs] = useState("");
   const [editPhotoExId, setEditPhotoExId] = useState<string>("");
+
+  const syncUrl = (
+    nextView: "discover" | "artist" | "exhibition",
+    artistId?: string,
+    exhibitionId?: string | null,
+  ) => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("artist");
+    url.searchParams.delete("exhibition");
+
+    if (nextView === "artist" && artistId) {
+      url.searchParams.set("artist", artistId);
+    } else if (nextView === "exhibition" && artistId) {
+      url.searchParams.set("artist", artistId);
+      if (exhibitionId) {
+        url.searchParams.set("exhibition", exhibitionId);
+      }
+    }
+    window.history.pushState({}, "", url.toString());
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const aId = params.get("artist");
+      const eId = params.get("exhibition");
+      if (aId && eId) {
+        setSelectedArtistId(aId);
+        setActiveExhibitionId(eId);
+        setView("exhibition");
+      } else if (aId) {
+        setSelectedArtistId(aId);
+        setActiveExhibitionId(null);
+        setView("artist");
+      } else {
+        setView("discover");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const allArtists = useMemo(() => [...cloudProfiles, MARA_VENN_PROFILE], [cloudProfiles]);
   const allExhibitions = useMemo(
@@ -1131,7 +1289,6 @@ export default function App() {
     [allPhotos, currentArtist.id],
   );
 
-  // 當前正在看的單一展覽與其所屬照片
   const currentExhibition = useMemo(() => {
     const found = currentArtistExhibitions.find((e) => e.id === activeExhibitionId);
     if (found) return found;
@@ -1149,103 +1306,162 @@ export default function App() {
   const currentExhibitionIndex = useMemo(() => {
     const idx = currentArtistExhibitions.findIndex((e) => e.id === currentExhibition.id);
     return idx >= 0 ? idx : 0;
-  }, [currentArtistExhibitions, currentExhibition.id]);
+  }, [currentArtistExhibitions, currentExhibition]);
 
-  const currentExhibitionPhotos = useMemo(() => {
+  const exhibitionPhotos = useMemo(() => {
     if (currentExhibition.isVirtualDefault) {
       return currentArtistPhotos;
     }
-    const direct = currentArtistPhotos.filter((p) => p.exhibition_id === currentExhibition.id);
+    const assigned = currentArtistPhotos.filter((p) => p.exhibition_id === currentExhibition.id);
     if (currentExhibitionIndex === 0) {
-      return [...direct, ...currentArtistPhotos.filter((p) => !p.exhibition_id)];
+      const unassigned = currentArtistPhotos.filter((p) => !p.exhibition_id);
+      return [...assigned, ...unassigned];
     }
-    return direct;
-  }, [currentExhibition, currentArtistPhotos, currentExhibitionIndex]);
+    return assigned;
+  }, [currentArtistPhotos, currentExhibition, currentExhibitionIndex]);
 
-  // 登入者自己的展覽與作品（STUDIO 用）
-  const myExhibitions = useMemo(
+  const myOwnExhibitions = useMemo(
     () => (user ? cloudExhibitions.filter((e) => e.user_id === user.id) : []),
     [cloudExhibitions, user],
   );
-  const myPhotos = useMemo(
+
+  const myOwnPhotos = useMemo(
     () => (user ? cloudPhotos.filter((p) => p.user_id === user.id) : []),
     [cloudPhotos, user],
   );
 
-  const fetchGalleryData = async () => {
-    const [profilesRes, exhibitionsRes, photosRes] = await Promise.all([
+  useEffect(() => {
+    if (myOwnExhibitions.length > 0 && !targetExhibitionId) {
+      setTargetExhibitionId(myOwnExhibitions[0].id);
+    }
+  }, [myOwnExhibitions, targetExhibitionId]);
+
+  const fetchAllCloudData = async () => {
+    const [{ data: profilesData }, { data: exData }, { data: photosData }] = await Promise.all([
       supabase.from("profiles").select("*").order("updated_at", { ascending: false }),
       supabase.from("exhibitions").select("*").order("created_at", { ascending: true }),
-      supabase.from("photographs").select("*").order("created_at", { ascending: true }),
+      supabase.from("photographs").select("*").order("created_at", { ascending: false }),
     ]);
 
-    const profileMap = new Map<string, string>();
-    if (!profilesRes.error && profilesRes.data) {
-      setCloudProfiles(profilesRes.data);
-      profilesRes.data.forEach((p) => profileMap.set(p.id, p.display_name));
+    if (profilesData) {
+      setCloudProfiles(
+        profilesData.map((p: any) => ({
+          id: p.id,
+          display_name: p.display_name || "Untitled Artist",
+          location: p.location || "TAIPEI, TW · WORKING INTERNATIONALLY",
+          bio: p.bio || "Independent visual archive and photographic studies.",
+          specialty: p.specialty || "EDITORIAL · DOCUMENTARY",
+          avatar_url: p.avatar_url,
+          available_for_commissions: p.available_for_commissions ?? true,
+        })),
+      );
     }
 
-    if (!exhibitionsRes.error && exhibitionsRes.data) {
-      setCloudExhibitions(exhibitionsRes.data);
+    if (exData) {
+      setCloudExhibitions(
+        exData.map((e: any) => ({
+          id: e.id,
+          user_id: e.user_id,
+          title: e.title,
+          location: e.location || "TAIPEI, TW",
+          period: e.period || "2026",
+          description: e.description || "",
+        })),
+      );
     }
 
-    if (!photosRes.error && photosRes.data) {
-      const mapped: Photograph[] = photosRes.data.map((row) => ({
-        id: row.id,
-        user_id: row.user_id,
-        exhibition_id: row.exhibition_id,
-        src: row.image_url,
-        alt: row.title,
-        title: row.title,
-        year: row.shoot_date ? row.shoot_date.slice(0, 4) : "2026",
-        specs: row.specs || "DIGITAL ARCHIVE",
-        credit: (profileMap.get(row.user_id) || "RESIDENT ARTIST").toUpperCase(),
-        shootDateKey: row.shoot_date,
-        isCover: row.is_cover,
-      }));
-      setCloudPhotos(mapped);
+    if (photosData) {
+      setCloudPhotos(
+        photosData.map((item: any) => ({
+          id: item.id,
+          user_id: item.user_id,
+          exhibition_id: item.exhibition_id,
+          src: item.src,
+          alt: item.alt || item.title,
+          title: item.title,
+          year: item.year || "2026",
+          specs: item.specs || "DIGITAL ARCHIVE",
+          credit: item.credit || "ARTIST ARCHIVE",
+          shootDateKey: item.shoot_date_key,
+          isCover: item.is_cover ?? false,
+        })),
+      );
     }
   };
 
+  const ensureUserProfileAndDefaultExhibition = async (authUser: any) => {
+    const defaultName =
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name ||
+      authUser.email?.split("@")[0] ||
+      "Resident Photographer";
+
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    if (!existingProfile) {
+      await supabase.from("profiles").insert({
+        id: authUser.id,
+        display_name: defaultName,
+        location: "TAIPEI, TW · WORKING INTERNATIONALLY",
+        bio: `${defaultName}'s curated digital photography archive and visual studies.`,
+        specialty: "EDITORIAL · STREET · FINE ART",
+        avatar_url: authUser.user_metadata?.avatar_url || null,
+        available_for_commissions: true,
+      });
+    }
+
+    const { data: existingEx } = await supabase
+      .from("exhibitions")
+      .select("id")
+      .eq("user_id", authUser.id)
+      .limit(1);
+
+    if (!existingEx || existingEx.length === 0) {
+      await supabase.from("exhibitions").insert({
+        user_id: authUser.id,
+        title: "Selected Works",
+        location: "TAIPEI, TW",
+        period: "2026",
+        description: "Primary body of photographic studies and recent visual monographs.",
+      });
+    }
+
+    await fetchAllCloudData();
+  };
+
   useEffect(() => {
-    fetchGalleryData();
+    fetchAllCloudData();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        ensureUserProfileAndDefaultExhibition(u);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchGalleryData();
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        ensureUserProfileAndDefaultExhibition(u);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const onGlobalKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchOpen((prev) => !prev);
-      }
-      if (e.key === "Escape" && searchOpen) {
-        setSearchOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onGlobalKey);
-    return () => window.removeEventListener("keydown", onGlobalKey);
-  }, [searchOpen]);
-
   const handleGoogleLogin = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
-    if (error) alert("Google 登入失敗：" + error.message);
   };
 
   const handleLogout = async () => {
@@ -1253,29 +1469,19 @@ export default function App() {
     setStudioOpen(false);
   };
 
-  const openArtistGallery = (artistId: string) => {
-    setSelectedArtistId(artistId);
-    setView("artist");
-    setSearchOpen(false);
-    setStudioOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   const handleSaveArtistProfile = async (updated: Partial<ArtistProfile>) => {
     if (!user) return;
-    const { error } = await supabase
+    await supabase
       .from("profiles")
-      .update({ ...updated, updated_at: new Date().toISOString() })
+      .update({
+        ...updated,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", user.id);
 
-    if (error) {
-      alert("儲存個人檔案失敗：" + error.message);
-      return;
-    }
-    await fetchGalleryData();
+    await fetchAllCloudData();
   };
 
-  // 建立新展覽（順序 2）
   const handleCreateExhibition = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newExTitle.trim()) return;
@@ -1289,169 +1495,161 @@ export default function App() {
         location: newExLocation.trim() || "TAIPEI, TW",
         period: newExPeriod.trim() || "2026",
         description:
-          newExDesc.trim() || "A curated visual study of light, space, and quiet observation.",
+          newExDesc.trim() || "Curated photographic monograph and visual study.",
       })
       .select()
       .single();
 
-    setCreatingEx(false);
-    if (error) {
-      alert("建立展覽失敗：" + error.message);
-      return;
+    if (!error && data) {
+      setTargetExhibitionId(data.id);
+      setNewExTitle("");
+      setNewExDesc("");
+      await fetchAllCloudData();
     }
-
-    setNewExTitle("");
-    setNewExDesc("");
-    if (data?.id) setTargetExhibitionId(data.id);
-    await fetchGalleryData();
-    setStudioTab("photos");
+    setCreatingEx(false);
   };
 
   const handleDeleteExhibition = async (exId: string) => {
-    if (!user || !confirm("確定要刪除此展覽？（展覽內的照片會保留並移回未分類）")) return;
+    if (!user) return;
+    if (!window.confirm("確定要刪除此展覽嗎？（展覽內的照片會自動保留在你的作品庫中）")) return;
+
+    await supabase.from("photographs").update({ exhibition_id: null }).eq("exhibition_id", exId);
     await supabase.from("exhibitions").delete().eq("id", exId).eq("user_id", user.id);
-    await fetchGalleryData();
-  };
-
-  // 上傳照片至指定展覽
-  const handleUploadFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !user) return;
-    setIsUploading(true);
-
-    try {
-      const parsedList = await parsePhotographs(files);
-      const fileArray = Array.from(files);
-      const chosenExId = targetExhibitionId || myExhibitions[0]?.id || null;
-
-      for (let i = 0; i < fileArray.length; i++) {
-        const file = fileArray[i];
-        const meta = parsedList[i];
-        const ext = file.name.split(".").pop() || "jpg";
-        const filePath = `${user.id}/${Date.now()}-${i}.${ext}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("portfolio-photos")
-          .upload(filePath, file);
-
-        if (uploadError) throw new Error(`圖片上傳失敗：${uploadError.message}`);
-
-        const { data: publicUrlData } = supabase.storage
-          .from("portfolio-photos")
-          .getPublicUrl(filePath);
-
-        const shouldBeCover = myPhotos.length === 0 && i === 0;
-        const { error: dbError } = await supabase.from("photographs").insert({
-          user_id: user.id,
-          exhibition_id: chosenExId,
-          title: meta.title,
-          specs: meta.specs,
-          image_url: publicUrlData.publicUrl,
-          shoot_date: meta.shootDateKey || toDateKey(new Date()),
-          is_cover: shouldBeCover,
-        });
-
-        if (dbError) throw new Error(`資料庫儲存失敗：${dbError.message}`);
-      }
-
-      await fetchGalleryData();
-      openArtistGallery(user.id);
-    } catch (err: any) {
-      alert(err.message || "上傳過程發生錯誤");
-    } finally {
-      setIsUploading(false);
+    if (targetExhibitionId === exId) {
+      setTargetExhibitionId("");
     }
+    await fetchAllCloudData();
   };
 
-  // 編輯單張作品資訊（順序 1）
   const startEditPhoto = (photo: Photograph) => {
     if (!photo.id) return;
     setEditingPhotoId(photo.id);
     setEditPhotoTitle(photo.title);
     setEditPhotoSpecs(photo.specs);
-    setEditPhotoExId(photo.exhibition_id || "");
+    setEditPhotoExId(photo.exhibition_id || myOwnExhibitions[0]?.id || "");
   };
 
-  const handleSavePhotoEdit = async (photoId: string) => {
-    if (!user) return;
-    const { error } = await supabase
+  const handleSavePhotoEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !editingPhotoId) return;
+
+    await supabase
       .from("photographs")
       .update({
-        title: editPhotoTitle.trim() || "Untitled",
+        title: editPhotoTitle.trim() || "Untitled Study",
         specs: editPhotoSpecs.trim() || "DIGITAL ARCHIVE",
         exhibition_id: editPhotoExId || null,
       })
-      .eq("id", photoId)
+      .eq("id", editingPhotoId)
       .eq("user_id", user.id);
 
-    if (error) {
-      alert("更新作品失敗：" + error.message);
-      return;
-    }
     setEditingPhotoId(null);
-    await fetchGalleryData();
+    await fetchAllCloudData();
   };
 
-  // 刪除單張作品並釋放雲端儲存空間（順序 1）
+  const handleSetPhotoCover = async (photoId?: string) => {
+    if (!user || !photoId) return;
+    await supabase.from("photographs").update({ is_cover: false }).eq("user_id", user.id);
+    await supabase
+      .from("photographs")
+      .update({ is_cover: true })
+      .eq("id", photoId)
+      .eq("user_id", user.id);
+    await fetchAllCloudData();
+  };
+
   const handleDeletePhoto = async (photo: Photograph) => {
     if (!user || !photo.id) return;
-    if (!confirm(`確定要永久刪除「${photo.title}」嗎？`)) return;
+    if (!window.confirm(`確定要永久刪除作品「${photo.title}」嗎？`)) return;
 
-    // 1. 嘗試從 publicUrl 解析出 Storage 檔案路徑並刪除實體圖檔
-    const marker = "/portfolio-photos/";
-    const idx = photo.src.indexOf(marker);
+    const storageMarker = "/gallery-photos/";
+    const idx = photo.src.indexOf(storageMarker);
     if (idx !== -1) {
-      const storagePath = photo.src.slice(idx + marker.length);
-      await supabase.storage.from("portfolio-photos").remove([storagePath]);
+      const storagePath = decodeURIComponent(photo.src.slice(idx + storageMarker.length));
+      await supabase.storage.from("gallery-photos").remove([storagePath]);
     }
 
-    // 2. 刪除資料庫紀錄
     await supabase.from("photographs").delete().eq("id", photo.id).eq("user_id", user.id);
-    await fetchGalleryData();
+    await fetchAllCloudData();
   };
 
-  const handleSetAsCover = async (photoId?: string) => {
-    if (!photoId || !user) return;
-    await supabase.from("photographs").update({ is_cover: false }).eq("user_id", user.id);
-    await supabase.from("photographs").update({ is_cover: true }).eq("id", photoId);
-    await fetchGalleryData();
-  };
-
-  const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) {
-      return {
-        artists: allArtists,
-        photos: allPhotos.slice(0, 6),
-      };
+  // 上傳照片：先讀取原圖 EXIF，再壓縮至 2400px 展覽級畫質後上傳至 Supabase Storage
+  const handleUploadFiles = async (fileList: FileList | File[]) => {
+    if (!user) {
+      alert("請先點擊右上角 SIGN IN 登入你的藝術家帳號再上傳作品！");
+      return;
     }
-    return {
-      artists: allArtists.filter(
-        (a) =>
-          a.display_name.toLowerCase().includes(q) ||
-          a.location.toLowerCase().includes(q) ||
-          a.specialty.toLowerCase().includes(q),
-      ),
-      photos: allPhotos.filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.specs.toLowerCase().includes(q) ||
-          p.credit.toLowerCase().includes(q),
-      ),
-    };
-  }, [searchQuery, allArtists, allPhotos]);
 
-  const lightboxList = view === "exhibition" ? currentExhibitionPhotos : currentArtistPhotos;
-  const closeLightbox = () => setActivePhoto(null);
-  const movePhoto = (direction: number) => {
-    setActivePhoto((current) => {
-      if (current === null || lightboxList.length === 0) return null;
-      return (current + direction + lightboxList.length) % lightboxList.length;
-    });
+    const filesArray = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    if (filesArray.length === 0) return;
+
+    setIsUploading(true);
+    setUploadStatusText("READING EXIF & COMPRESSING...");
+    try {
+      // 1. 先從原始相機檔案讀取 EXIF 拍攝參數與日期
+      const parsedList = await parsePhotographs(filesArray);
+      const myProfile = cloudProfiles.find((p) => p.id === user.id);
+      const artistCredit = (myProfile?.display_name || "ARTIST ARCHIVE").toUpperCase();
+      const chosenExId = targetExhibitionId || myOwnExhibitions[0]?.id || null;
+
+      for (let i = 0; i < filesArray.length; i++) {
+        const file = filesArray[i];
+        const meta = parsedList[i];
+        setUploadStatusText(`OPTIMIZING & UPLOADING ${i + 1} / ${filesArray.length}...`);
+
+        // 2. 在瀏覽器端壓縮高畫質展示圖（長邊上限 2400px）
+        const optimizedBlob = await compressImageForGallery(file, 2400, 0.88);
+        const fileExt = optimizedBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
+        const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from("gallery-photos")
+          .upload(fileName, optimizedBlob, {
+            contentType: optimizedBlob.type || "image/jpeg",
+          });
+
+        if (uploadErr) {
+          console.error("Storage upload error:", uploadErr);
+          continue;
+        }
+
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("gallery-photos").getPublicUrl(fileName);
+
+        await supabase.from("photographs").insert({
+          user_id: user.id,
+          exhibition_id: chosenExId,
+          src: publicUrl,
+          alt: meta.alt,
+          title: meta.title,
+          year: meta.year,
+          specs: meta.specs,
+          credit: artistCredit,
+          shoot_date_key: meta.shootDateKey,
+          is_cover: myOwnPhotos.length === 0 && i === 0,
+        });
+      }
+
+      await fetchAllCloudData();
+      setSelectedArtistId(user.id);
+      setView("artist");
+      syncUrl("artist", user.id);
+      setStudioOpen(false);
+    } finally {
+      setIsUploading(false);
+      setUploadStatusText("");
+    }
   };
 
   useEffect(() => {
+    document.body.dataset.theme = dark ? "dark" : "light";
+  }, [dark]);
+
+  useEffect(() => {
     const openPhoto = (event: Event) => {
-      setActivePhoto((event as CustomEvent<number>).detail);
+      const detail = (event as CustomEvent<number>).detail;
+      setActivePhoto(detail);
       setShowInfo(true);
     };
     window.addEventListener("open-photo", openPhoto);
@@ -1459,798 +1657,834 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (activePhoto === null) return;
-      if (event.key === "Escape") closeLightbox();
-      if (event.key === "ArrowLeft") movePhoto(-1);
-      if (event.key === "ArrowRight") movePhoto(1);
-      if (event.key.toLowerCase() === "i") setShowInfo((value) => !value);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activePhoto, lightboxList.length]);
+    const handleKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen((prev) => !prev);
+        return;
+      }
 
-  useEffect(() => {
-    document.body.style.overflow = activePhoto !== null || searchOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [activePhoto, searchOpen]);
+      if (searchOpen && event.key === "Escape") {
+        setSearchOpen(false);
+        return;
+      }
 
-  const currentPhoto = activePhoto !== null ? lightboxList[activePhoto] : null;
+      if (studioOpen && event.key === "Escape") {
+        setStudioOpen(false);
+        return;
+      }
+
+      if (activePhoto === null || exhibitionPhotos.length === 0) return;
+      if (event.key === "Escape") setActivePhoto(null);
+      if (event.key === "ArrowRight")
+        setActivePhoto((prev) => (prev === null ? null : (prev + 1) % exhibitionPhotos.length));
+      if (event.key === "ArrowLeft")
+        setActivePhoto((prev) =>
+          prev === null ? null : (prev - 1 + exhibitionPhotos.length) % exhibitionPhotos.length,
+        );
+      if (event.key.toLowerCase() === "i") setShowInfo((prev) => !prev);
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [activePhoto, exhibitionPhotos.length, studioOpen, searchOpen]);
+
+  const currentLightboxPhoto = activePhoto === null ? null : exhibitionPhotos[activePhoto];
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const matchedArtists = allArtists.filter(
+      (a) =>
+        a.display_name.toLowerCase().includes(q) ||
+        a.location.toLowerCase().includes(q) ||
+        a.specialty.toLowerCase().includes(q),
+    );
+    const matchedPhotos = allPhotos.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.specs.toLowerCase().includes(q) ||
+        p.credit.toLowerCase().includes(q),
+    );
+    return { matchedArtists, matchedPhotos };
+  }, [searchQuery, allArtists, allPhotos]);
 
   return (
-    <main className={dark ? "site darkroom" : "site"}>
-      <header className="topbar">
-        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+    <div
+      className="site-shell"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files?.length) {
+          handleUploadFiles(e.dataTransfer.files);
+        }
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            handleUploadFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
+      />
+
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            className="dropzone-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onDragLeave={() => setIsDragging(false)}
+          >
+            <div className="dropzone-box">
+              <p className="eyebrow">AUTO-OPTIMIZE & EXIF SYNC</p>
+              <h2>Drop photographs to publish to your gallery</h2>
+              <p>Images will be auto-compressed to 2400px archival quality before upload.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <header className="site-header">
+        <button
+          className="wordmark"
+          onClick={() => {
+            setView("discover");
+            syncUrl("discover");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        >
+          STUDIO FOLIO
+        </button>
+
+        <nav aria-label="Primary navigation">
           <button
-            className="wordmark"
+            className={view === "discover" ? "active" : ""}
             onClick={() => {
               setView("discover");
+              syncUrl("discover");
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
-            aria-label="Studio Folio Discover"
           >
-            STUDIO FOLIO
+            DISCOVER
           </button>
 
-          <button
-            onClick={() => setSearchOpen(true)}
-            style={{
-              fontSize: "11px",
-              letterSpacing: "0.14em",
-              opacity: 0.65,
-              cursor: "pointer",
-              padding: "4px 10px",
-              border: "1px solid currentColor",
-            }}
-          >
-            SEARCH ARTISTS / WORKS (⌘K)
-          </button>
-        </div>
+          {user && (
+            <button
+              className={view !== "discover" && selectedArtistId === user.id ? "active" : ""}
+              onClick={() => {
+                setSelectedArtistId(user.id);
+                setView("artist");
+                syncUrl("artist", user.id);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              MY GALLERY
+            </button>
+          )}
 
-        <div className="top-actions">
-          <button className="text-button theme-button" onClick={() => setDark((value) => !value)}>
-            <span className="theme-mark" aria-hidden="true" />
-            {dark ? "LIGHT" : "DARKROOM"}
+          {user && (
+            <button
+              className={studioOpen ? "active" : ""}
+              onClick={() => setStudioOpen(true)}
+            >
+              STUDIO ({myOwnPhotos.length})
+            </button>
+          )}
+
+          <button onClick={() => setSearchOpen(true)} aria-label="Search artists and works">
+            SEARCH
           </button>
 
           {user ? (
-            <>
-              <button
-                className="text-button"
-                onClick={() => openArtistGallery(user.id)}
-                style={{
-                  textDecoration:
-                    view !== "discover" && selectedArtistId === user.id ? "underline" : "none",
-                }}
-              >
-                MY GALLERY
-              </button>
-              <button className="studio-button" onClick={() => setStudioOpen((value) => !value)}>
-                STUDIO
-              </button>
-            </>
-          ) : (
-            <button className="studio-button" onClick={handleGoogleLogin}>
-              SIGN IN / OPEN GALLERY
+            <button onClick={handleLogout} title={user.email}>
+              SIGN OUT
             </button>
+          ) : (
+            <button onClick={handleGoogleLogin}>SIGN IN</button>
           )}
-        </div>
+
+          <button
+            className="theme-toggle"
+            onClick={() => setDark((prev) => !prev)}
+            aria-label={`Switch to ${dark ? "daylight" : "darkroom"} theme`}
+          >
+            {dark ? "DAYLIGHT" : "DARKROOM"}
+          </button>
+        </nav>
       </header>
 
-      {/* 全螢幕極簡搜尋抽屜 */}
+      <main>
+        <AnimatePresence mode="wait">
+          {view === "discover" && (
+            <DiscoverView
+              artists={allArtists}
+              allPhotos={allPhotos}
+              currentUserId={user?.id}
+              onSelectArtist={(artistId) => {
+                setSelectedArtistId(artistId);
+                setView("artist");
+                syncUrl("artist", artistId);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onOpenStudioOrLogin={() => {
+                if (user) {
+                  setSelectedArtistId(user.id);
+                  setView("artist");
+                  syncUrl("artist", user.id);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                } else {
+                  handleGoogleLogin();
+                }
+              }}
+            />
+          )}
+
+          {view === "artist" && (
+            <ArtistGalleryProfileView
+              artist={currentArtist}
+              artistPhotos={currentArtistPhotos}
+              artistExhibitions={currentArtistExhibitions}
+              dark={dark}
+              isOwnProfile={Boolean(user && user.id === currentArtist.id)}
+              onOpenExhibition={(ex) => {
+                setActiveExhibitionId(ex.id);
+                setView("exhibition");
+                syncUrl("exhibition", currentArtist.id, ex.id);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onOpenStudio={() => setStudioOpen(true)}
+              onSaveProfile={handleSaveArtistProfile}
+              onBackToDiscover={() => {
+                setView("discover");
+                syncUrl("discover");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+
+          {view === "exhibition" && (
+            <ExhibitionView
+              artist={currentArtist}
+              exhibition={currentExhibition}
+              exhibitionIndex={currentExhibitionIndex}
+              photos={exhibitionPhotos}
+              dark={dark}
+              onBackToArtist={() => {
+                setView("artist");
+                syncUrl("artist", currentArtist.id);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* ==================== 全站搜尋（CMD+K） ==================== */}
       <AnimatePresence>
         {searchOpen && (
           <motion.div
+            className="studio-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease }}
             onClick={() => setSearchOpen(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 80,
-              background: dark ? "rgba(18, 17, 16, 0.94)" : "rgba(246, 244, 240, 0.95)",
-              backdropFilter: "blur(8px)",
-              padding: "80px 6vw",
-              overflowY: "auto",
-            }}
           >
-            <div
+            <motion.aside
+              className="studio-drawer"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ duration: 0.45, ease }}
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: "780px", margin: "0 auto" }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "20px",
-                }}
-              >
-                <p className="eyebrow">SEARCH ARCHIVE — ARTISTS, CITIES, CAMERAS, WORKS</p>
-                <button
-                  onClick={() => setSearchOpen(false)}
-                  style={{ fontSize: "11px", letterSpacing: "0.15em", cursor: "pointer" }}
-                >
-                  CLOSE (ESC)
+              <div className="studio-header">
+                <div>
+                  <p className="eyebrow">ARCHIVE INDEX · CMD+K</p>
+                  <h2>Search Artists & Works</h2>
+                </div>
+                <button className="studio-close" onClick={() => setSearchOpen(false)}>
+                  CLOSE [ESC]
                 </button>
               </div>
 
-              <input
-                autoFocus
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Type artist name, Leica, Tokyo, title..."
-                style={{
-                  width: "100%",
-                  fontSize: "24px",
-                  padding: "14px 0",
-                  border: "none",
-                  borderBottom: "1px solid currentColor",
-                  background: "transparent",
-                  color: "inherit",
-                  outline: "none",
-                  marginBottom: "32px",
-                }}
-              />
-
-              <div style={{ marginBottom: "32px" }}>
-                <p className="eyebrow" style={{ marginBottom: "12px" }}>
-                  ARTISTS ({searchResults.artists.length})
-                </p>
-                <div style={{ display: "grid", gap: "10px" }}>
-                  {searchResults.artists.map((artist) => (
-                    <button
-                      key={artist.id}
-                      onClick={() => openArtistGallery(artist.id)}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "12px 14px",
-                        border: "1px solid currentColor",
-                        textAlign: "left",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <div>
-                        <strong style={{ fontSize: "15px", display: "block" }}>
-                          {artist.display_name}
-                        </strong>
-                        <span style={{ fontSize: "11px", opacity: 0.7 }}>{artist.location}</span>
-                      </div>
-                      <span style={{ fontSize: "11px", letterSpacing: "0.14em" }}>
-                        ENTER GALLERY →
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="eyebrow" style={{ marginBottom: "12px" }}>
-                  PHOTOGRAPHS ({searchResults.photos.length})
-                </p>
-                <div
+              <div className="studio-body">
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Type artist name, camera, film, or title..."
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
-                    gap: "14px",
+                    width: "100%",
+                    padding: "12px 14px",
+                    border: "1px solid currentColor",
+                    background: "transparent",
+                    color: "inherit",
+                    fontSize: "14px",
+                    marginBottom: "24px",
                   }}
-                >
-                  {searchResults.photos.map((photo) => (
-                    <button
-                      key={photo.id || photo.src}
-                      onClick={() => {
-                        if (photo.user_id) {
-                          openArtistGallery(photo.user_id);
-                        }
-                      }}
-                      style={{
-                        textAlign: "left",
-                        cursor: "pointer",
-                        border: "1px solid rgba(128,128,128,0.25)",
-                        padding: "8px",
-                      }}
-                    >
-                      <img
-                        src={photo.src}
-                        alt={photo.alt}
-                        style={{
-                          width: "100%",
-                          height: "130px",
-                          objectFit: "cover",
-                          marginBottom: "8px",
-                        }}
-                      />
-                      <div style={{ fontSize: "12px", fontWeight: 500 }}>{photo.title}</div>
-                      <div style={{ fontSize: "10px", opacity: 0.65 }}>{photo.credit}</div>
-                    </button>
-                  ))}
-                </div>
+                />
+
+                {searchQuery.trim() && (
+                  <div style={{ display: "grid", gap: "24px" }}>
+                    <div>
+                      <p className="eyebrow" style={{ marginBottom: "10px" }}>
+                        ARTISTS ({searchResults.matchedArtists?.length || 0})
+                      </p>
+                      {searchResults.matchedArtists?.map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => {
+                            setSelectedArtistId(a.id);
+                            setView("artist");
+                            syncUrl("artist", a.id);
+                            setSearchOpen(false);
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "10px 0",
+                            borderBottom: "1px solid rgba(128,128,128,0.25)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <strong>{a.display_name}</strong>
+                          <span style={{ display: "block", fontSize: "11px", opacity: 0.65 }}>
+                            {a.location} · {a.specialty}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div>
+                      <p className="eyebrow" style={{ marginBottom: "10px" }}>
+                        PHOTOGRAPHS ({searchResults.matchedPhotos?.length || 0})
+                      </p>
+                      {searchResults.matchedPhotos?.map((p, i) => (
+                        <button
+                          key={p.id || i}
+                          onClick={() => {
+                            if (p.user_id) {
+                              setSelectedArtistId(p.user_id);
+                              setView("artist");
+                              syncUrl("artist", p.user_id);
+                            }
+                            setSearchOpen(false);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 0",
+                            borderBottom: "1px solid rgba(128,128,128,0.25)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <img
+                            src={p.src}
+                            alt={p.title}
+                            style={{ width: "48px", height: "48px", objectFit: "cover" }}
+                          />
+                          <div>
+                            <strong>{p.title}</strong>
+                            <span style={{ display: "block", fontSize: "11px", opacity: 0.65 }}>
+                              {p.credit} · {p.specs}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            </motion.aside>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 個人策展 STUDIO 面板（多展覽管理 ＋ 單張作品編輯/刪除） */}
+      {/* ==================== 藝術家個人暗房工作台（STUDIO） ==================== */}
       <AnimatePresence>
         {studioOpen && user && (
-          <motion.aside
-            className="studio-note"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.45, ease }}
-            style={{ maxWidth: "430px", width: "92vw" }}
-          >
-            <p className="eyebrow">CURATOR STUDIO</p>
-            <button onClick={() => setStudioOpen(false)} aria-label="Close studio notes">
-              CLOSE
-            </button>
-
-            {/* 分頁切換：PHOTOS / EXHIBITIONS */}
-            <div
-              style={{
-                display: "flex",
-                gap: "14px",
-                marginTop: "10px",
-                marginBottom: "14px",
-                paddingBottom: "8px",
-                borderBottom: "1px solid rgba(128,128,128,0.3)",
-                fontSize: "11px",
-                letterSpacing: "0.14em",
-              }}
-            >
-              <button
-                onClick={() => setStudioTab("photos")}
-                style={{
-                  position: "static",
-                  fontWeight: studioTab === "photos" ? 600 : 400,
-                  textDecoration: studioTab === "photos" ? "underline" : "none",
-                  opacity: studioTab === "photos" ? 1 : 0.6,
-                }}
-              >
-                PHOTOS ({myPhotos.length})
-              </button>
-              <button
-                onClick={() => setStudioTab("exhibitions")}
-                style={{
-                  position: "static",
-                  fontWeight: studioTab === "exhibitions" ? 600 : 400,
-                  textDecoration: studioTab === "exhibitions" ? "underline" : "none",
-                  opacity: studioTab === "exhibitions" ? 1 : 0.6,
-                }}
-              >
-                EXHIBITIONS ({myExhibitions.length})
-              </button>
-            </div>
-
-            {studioTab === "photos" ? (
-              <>
-                {/* 選擇上傳目標展覽 */}
-                {myExhibitions.length > 0 && (
-                  <div style={{ marginBottom: "10px" }}>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: "10px",
-                        letterSpacing: "0.12em",
-                        opacity: 0.75,
-                        marginBottom: "4px",
-                      }}
-                    >
-                      ASSIGN UPLOADS TO EXHIBITION
-                    </label>
-                    <select
-                      value={targetExhibitionId || myExhibitions[0]?.id || ""}
-                      onChange={(e) => setTargetExhibitionId(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "7px 8px",
-                        border: "1px solid currentColor",
-                        background: dark ? "#181715" : "#f6f4f0",
-                        color: "inherit",
-                        fontSize: "11px",
-                      }}
-                    >
-                      {myExhibitions.map((ex, i) => (
-                        <option key={ex.id} value={ex.id}>
-                          {String(i + 1).padStart(2, "0")} / {ex.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    handleUploadFiles(e.dataTransfer.files);
-                  }}
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    padding: "18px 14px",
-                    border: `1px dashed ${isDragging ? "#b87524" : "currentColor"}`,
-                    opacity: isDragging ? 1 : 0.8,
-                    cursor: "pointer",
-                    textAlign: "center",
-                    fontSize: "11px",
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/jpeg,image/png,image/webp"
-                    style={{ display: "none" }}
-                    onChange={(e) => handleUploadFiles(e.target.files)}
-                  />
-                  {isUploading ? "UPLOADING TO YOUR GALLERY..." : "+ DROP PHOTOS OR CLICK TO UPLOAD"}
-                </div>
-
-                {/* 已上傳作品管理（編輯標題/參數、設封面、刪除） */}
-                {myPhotos.length > 0 && (
-                  <div style={{ marginTop: "14px" }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      <span style={{ fontSize: "10px", opacity: 0.75, letterSpacing: "0.1em" }}>
-                        MANAGE ARCHIVE ({myPhotos.length})
-                      </span>
-                      <button
-                        onClick={() => openArtistGallery(user.id)}
-                        style={{ position: "static", textDecoration: "underline", fontSize: "10px" }}
-                      >
-                        VIEW GALLERY →
-                      </button>
-                    </div>
-
-                    <div
-                      style={{
-                        maxHeight: "210px",
-                        overflowY: "auto",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
-                        paddingRight: "2px",
-                      }}
-                    >
-                      {myPhotos.map((item) => (
-                        <div
-                          key={item.id}
-                          style={{
-                            borderBottom: "1px solid rgba(128,128,128,0.2)",
-                            paddingBottom: "8px",
-                            fontSize: "11px",
-                          }}
-                        >
-                          {editingPhotoId === item.id ? (
-                            <div style={{ display: "grid", gap: "6px" }}>
-                              <input
-                                value={editPhotoTitle}
-                                onChange={(e) => setEditPhotoTitle(e.target.value)}
-                                placeholder="Artwork title"
-                                style={{
-                                  padding: "5px 7px",
-                                  border: "1px solid currentColor",
-                                  background: "transparent",
-                                  color: "inherit",
-                                  fontSize: "11px",
-                                }}
-                              />
-                              <input
-                                value={editPhotoSpecs}
-                                onChange={(e) => setEditPhotoSpecs(e.target.value)}
-                                placeholder="Camera · Lens · Film"
-                                style={{
-                                  padding: "5px 7px",
-                                  border: "1px solid currentColor",
-                                  background: "transparent",
-                                  color: "inherit",
-                                  fontSize: "10px",
-                                }}
-                              />
-                              {myExhibitions.length > 0 && (
-                                <select
-                                  value={editPhotoExId}
-                                  onChange={(e) => setEditPhotoExId(e.target.value)}
-                                  style={{
-                                    padding: "5px 7px",
-                                    border: "1px solid currentColor",
-                                    background: dark ? "#181715" : "#f6f4f0",
-                                    color: "inherit",
-                                    fontSize: "10px",
-                                  }}
-                                >
-                                  <option value="">Default Exhibition</option>
-                                  {myExhibitions.map((ex) => (
-                                    <option key={ex.id} value={ex.id}>
-                                      {ex.title}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              <div style={{ display: "flex", gap: "8px" }}>
-                                <button
-                                  onClick={() => item.id && handleSavePhotoEdit(item.id)}
-                                  style={{
-                                    position: "static",
-                                    padding: "3px 8px",
-                                    border: "1px solid currentColor",
-                                    fontSize: "10px",
-                                  }}
-                                >
-                                  SAVE
-                                </button>
-                                <button
-                                  onClick={() => setEditingPhotoId(null)}
-                                  style={{ position: "static", fontSize: "10px", opacity: 0.7 }}
-                                >
-                                  CANCEL
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: "8px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                  overflow: "hidden",
-                                }}
-                              >
-                                <img
-                                  src={item.src}
-                                  alt=""
-                                  style={{
-                                    width: "30px",
-                                    height: "30px",
-                                    objectFit: "cover",
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <div style={{ overflow: "hidden" }}>
-                                  <div
-                                    style={{
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      fontWeight: 500,
-                                    }}
-                                  >
-                                    {item.title}
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontSize: "9px",
-                                      opacity: 0.65,
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                    }}
-                                  >
-                                    {item.specs}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
-                                <button
-                                  onClick={() => startEditPhoto(item)}
-                                  style={{
-                                    position: "static",
-                                    fontSize: "9px",
-                                    padding: "3px 6px",
-                                    border: "1px solid currentColor",
-                                    opacity: 0.75,
-                                  }}
-                                >
-                                  EDIT
-                                </button>
-                                <button
-                                  onClick={() => handleSetAsCover(item.id)}
-                                  disabled={item.isCover}
-                                  style={{
-                                    position: "static",
-                                    fontSize: "9px",
-                                    padding: "3px 6px",
-                                    border: "1px solid currentColor",
-                                    opacity: item.isCover ? 1 : 0.65,
-                                  }}
-                                >
-                                  {item.isCover ? "★" : "COVER"}
-                                </button>
-                                <button
-                                  onClick={() => handleDeletePhoto(item)}
-                                  style={{
-                                    position: "static",
-                                    fontSize: "9px",
-                                    padding: "3px 6px",
-                                    border: "1px solid currentColor",
-                                    opacity: 0.65,
-                                  }}
-                                >
-                                  DEL
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              /* 分頁 2：建立與管理多個展覽 */
-              <div>
-                <form onSubmit={handleCreateExhibition} style={{ display: "grid", gap: "8px" }}>
-                  <p style={{ fontSize: "10px", letterSpacing: "0.12em", opacity: 0.75 }}>
-                    CREATE NEW EXHIBITION ROOM
-                  </p>
-                  <input
-                    required
-                    value={newExTitle}
-                    onChange={(e) => setNewExTitle(e.target.value)}
-                    placeholder="Exhibition Title (e.g. Tokyo Nocturnes)"
-                    style={{
-                      padding: "7px 9px",
-                      border: "1px solid currentColor",
-                      background: "transparent",
-                      color: "inherit",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                    <input
-                      value={newExLocation}
-                      onChange={(e) => setNewExLocation(e.target.value)}
-                      placeholder="Location (e.g. TOKYO)"
-                      style={{
-                        padding: "7px 9px",
-                        border: "1px solid currentColor",
-                        background: "transparent",
-                        color: "inherit",
-                        fontSize: "11px",
-                      }}
-                    />
-                    <input
-                      value={newExPeriod}
-                      onChange={(e) => setNewExPeriod(e.target.value)}
-                      placeholder="Period (e.g. 2025—2026)"
-                      style={{
-                        padding: "7px 9px",
-                        border: "1px solid currentColor",
-                        background: "transparent",
-                        color: "inherit",
-                        fontSize: "11px",
-                      }}
-                    />
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={newExDesc}
-                    onChange={(e) => setNewExDesc(e.target.value)}
-                    placeholder="Curatorial statement / exhibition notes..."
-                    style={{
-                      padding: "7px 9px",
-                      border: "1px solid currentColor",
-                      background: "transparent",
-                      color: "inherit",
-                      fontSize: "11px",
-                      fontFamily: "inherit",
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={creatingEx}
-                    style={{
-                      position: "static",
-                      padding: "9px 12px",
-                      border: "1px solid currentColor",
-                      fontSize: "10px",
-                      letterSpacing: "0.14em",
-                    }}
-                  >
-                    {creatingEx ? "CREATING..." : "+ CREATE EXHIBITION"}
-                  </button>
-                </form>
-
-                {myExhibitions.length > 0 && (
-                  <div style={{ marginTop: "14px", display: "grid", gap: "6px" }}>
-                    <span style={{ fontSize: "10px", opacity: 0.7, letterSpacing: "0.1em" }}>
-                      YOUR EXHIBITIONS
-                    </span>
-                    {myExhibitions.map((ex, idx) => (
-                      <div
-                        key={ex.id}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: "6px 8px",
-                          border: "1px solid rgba(128,128,128,0.3)",
-                          fontSize: "11px",
-                        }}
-                      >
-                        <span>
-                          {String(idx + 1).padStart(2, "0")} / {ex.title}
-                        </span>
-                        <button
-                          onClick={() => handleDeleteExhibition(ex.id)}
-                          style={{ position: "static", fontSize: "9px", opacity: 0.65 }}
-                        >
-                          DEL
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div
-              style={{
-                marginTop: "16px",
-                paddingTop: "10px",
-                borderTop: "1px solid currentColor",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                opacity: 0.65,
-                fontSize: "10px",
-              }}
-            >
-              <span>{user.email}</span>
-              <button
-                onClick={handleLogout}
-                style={{ position: "static", textDecoration: "underline", fontSize: "10px" }}
-              >
-                SIGN OUT
-              </button>
-            </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
-
-      {/* 主畫面切換 */}
-      <AnimatePresence mode="wait">
-        {view === "discover" ? (
-          <DiscoverView
-            artists={allArtists}
-            allPhotos={allPhotos}
-            onSelectArtist={openArtistGallery}
-            currentUserId={user?.id}
-            onOpenStudioOrLogin={() => {
-              if (user) {
-                openArtistGallery(user.id);
-              } else {
-                handleGoogleLogin();
-              }
-            }}
-          />
-        ) : view === "artist" ? (
-          <ArtistGalleryProfileView
-            artist={currentArtist}
-            artistPhotos={currentArtistPhotos}
-            artistExhibitions={currentArtistExhibitions}
-            dark={dark}
-            isOwnProfile={Boolean(user && user.id === currentArtist.id)}
-            onOpenExhibition={(ex) => {
-              setActiveExhibitionId(ex.id);
-              setView("exhibition");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            onOpenStudio={() => setStudioOpen(true)}
-            onSaveProfile={handleSaveArtistProfile}
-            onBackToDiscover={() => setView("discover")}
-          />
-        ) : (
-          <ExhibitionView
-            artist={currentArtist}
-            exhibition={currentExhibition}
-            exhibitionIndex={currentExhibitionIndex}
-            photos={currentExhibitionPhotos}
-            dark={dark}
-            onBackToArtist={() => setView("artist")}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* 燈箱檢視 */}
-      <AnimatePresence>
-        {currentPhoto && activePhoto !== null && (
           <motion.div
-            className="lightbox"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${currentPhoto.title} lightbox`}
+            className="studio-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.55, ease }}
+            onClick={() => setStudioOpen(false)}
           >
-            <div className="lightbox-bar">
-              <p>
-                {String(activePhoto + 1).padStart(2, "0")} /{" "}
-                {String(lightboxList.length).padStart(2, "0")}
-              </p>
-              <button onClick={closeLightbox}>CLOSE</button>
-            </div>
-            <motion.img
-              key={currentPhoto.src}
-              src={currentPhoto.src}
-              alt={currentPhoto.alt}
-              initial={{ opacity: 0, scale: 0.985 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.75, ease }}
-            />
-            <button
-              className="nav-arrow previous"
-              onClick={() => movePhoto(-1)}
-              aria-label="Previous photograph"
+            <motion.aside
+              className="studio-drawer"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ duration: 0.45, ease }}
+              onClick={(e) => e.stopPropagation()}
             >
-              ←
-            </button>
-            <button
-              className="nav-arrow next"
-              onClick={() => movePhoto(1)}
-              aria-label="Next photograph"
-            >
-              →
-            </button>
-            <div className="keyboard-hint">← / → NAVIGATE</div>
-            <button className="info-toggle" onClick={() => setShowInfo((value) => !value)}>
-              {showInfo ? "HIDE INFO" : "INFO"}
-            </button>
-            <AnimatePresence>
-              {showInfo && (
-                <motion.div
-                  className="info-drawer"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
-                  transition={{ duration: 0.45, ease }}
+              <div className="studio-header">
+                <div>
+                  <p className="eyebrow">CURATOR WORKBENCH</p>
+                  <h2>Your Darkroom Studio</h2>
+                </div>
+                <button className="studio-close" onClick={() => setStudioOpen(false)}>
+                  CLOSE [ESC]
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "18px",
+                  padding: "12px 24px",
+                  borderBottom: "1px solid rgba(128,128,128,0.25)",
+                  fontSize: "11px",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                <button
+                  onClick={() => setStudioTab("photos")}
+                  style={{
+                    opacity: studioTab === "photos" ? 1 : 0.45,
+                    textDecoration: studioTab === "photos" ? "underline" : "none",
+                    cursor: "pointer",
+                  }}
                 >
-                  <div>
-                    <p className="lightbox-title">
-                      <em>{currentPhoto.title}</em>, {currentPhoto.year}
-                    </p>
-                    <p className="specs">{currentPhoto.specs}</p>
+                  01 / PHOTOGRAPHS ({myOwnPhotos.length})
+                </button>
+                <button
+                  onClick={() => setStudioTab("exhibitions")}
+                  style={{
+                    opacity: studioTab === "exhibitions" ? 1 : 0.45,
+                    textDecoration: studioTab === "exhibitions" ? "underline" : "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  02 / EXHIBITIONS ({myOwnExhibitions.length})
+                </button>
+              </div>
+
+              <div className="studio-body">
+                {studioTab === "photos" ? (
+                  <>
+                    {myOwnExhibitions.length > 0 && (
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "6px",
+                          fontSize: "11px",
+                          letterSpacing: "0.12em",
+                          marginBottom: "14px",
+                        }}
+                      >
+                        TARGET EXHIBITION ROOM FOR NEW UPLOADS:
+                        <select
+                          value={targetExhibitionId}
+                          onChange={(e) => setTargetExhibitionId(e.target.value)}
+                          style={{
+                            padding: "8px 10px",
+                            border: "1px solid currentColor",
+                            background: dark ? "#141312" : "#f7f5f0",
+                            color: "inherit",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {myOwnExhibitions.map((ex) => (
+                            <option key={ex.id} value={ex.id}>
+                              {ex.title} ({ex.period})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    <div
+                      className="studio-drop-area"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <p className="eyebrow">AUTO-COMPRESS 2400PX + EXIF SYNC</p>
+                      <p className="drop-title">
+                        {isUploading
+                          ? uploadStatusText || "UPLOADING..."
+                          : "+ Select or Drop Photographs to Publish"}
+                      </p>
+                      <p className="drop-sub">
+                        High-res camera files are automatically optimized before uploading.
+                      </p>
+                    </div>
+
+                    <div className="studio-list">
+                      <div className="studio-list-head">
+                        <span>YOUR ARCHIVE ({myOwnPhotos.length} WORKS)</span>
+                      </div>
+
+                      {myOwnPhotos.length === 0 ? (
+                        <p style={{ fontSize: "12px", opacity: 0.65, padding: "18px 0" }}>
+                          No photographs uploaded yet. Click above to add your first works.
+                        </p>
+                      ) : (
+                        myOwnPhotos.map((photo, idx) => {
+                          const assignedEx = myOwnExhibitions.find(
+                            (e) => e.id === photo.exhibition_id,
+                          );
+                          const isEditingThis = editingPhotoId === photo.id;
+
+                          return (
+                            <div
+                              className="studio-item"
+                              key={photo.id || idx}
+                              style={{ flexDirection: "column", alignItems: "stretch", gap: "10px" }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <img src={photo.src} alt={photo.alt} />
+                                <div className="studio-item-meta" style={{ flex: 1 }}>
+                                  <p className="studio-item-title">
+                                    {photo.title}{" "}
+                                    {photo.isCover && (
+                                      <span
+                                        style={{
+                                          fontSize: "9px",
+                                          padding: "2px 6px",
+                                          border: "1px solid currentColor",
+                                          marginLeft: "6px",
+                                        }}
+                                      >
+                                        COVER
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="studio-item-specs">
+                                    {assignedEx ? `[${assignedEx.title}] · ` : ""}
+                                    {photo.specs}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {isEditingThis ? (
+                                <form
+                                  onSubmit={handleSavePhotoEdit}
+                                  style={{
+                                    display: "grid",
+                                    gap: "8px",
+                                    padding: "10px",
+                                    border: "1px solid currentColor",
+                                  }}
+                                >
+                                  <input
+                                    value={editPhotoTitle}
+                                    onChange={(e) => setEditPhotoTitle(e.target.value)}
+                                    placeholder="Artwork title"
+                                    style={{
+                                      padding: "6px 8px",
+                                      border: "1px solid currentColor",
+                                      background: "transparent",
+                                      color: "inherit",
+                                      fontSize: "12px",
+                                    }}
+                                  />
+                                  <input
+                                    value={editPhotoSpecs}
+                                    onChange={(e) => setEditPhotoSpecs(e.target.value)}
+                                    placeholder="Camera & lens specs"
+                                    style={{
+                                      padding: "6px 8px",
+                                      border: "1px solid currentColor",
+                                      background: "transparent",
+                                      color: "inherit",
+                                      fontSize: "11px",
+                                    }}
+                                  />
+                                  {myOwnExhibitions.length > 0 && (
+                                    <select
+                                      value={editPhotoExId}
+                                      onChange={(e) => setEditPhotoExId(e.target.value)}
+                                      style={{
+                                        padding: "6px 8px",
+                                        border: "1px solid currentColor",
+                                        background: dark ? "#141312" : "#f7f5f0",
+                                        color: "inherit",
+                                        fontSize: "11px",
+                                      }}
+                                    >
+                                      {myOwnExhibitions.map((ex) => (
+                                        <option key={ex.id} value={ex.id}>
+                                          Exhibition: {ex.title}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <div style={{ display: "flex", gap: "8px" }}>
+                                    <button
+                                      type="submit"
+                                      style={{
+                                        padding: "5px 10px",
+                                        border: "1px solid currentColor",
+                                        fontSize: "10px",
+                                        letterSpacing: "0.12em",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      SAVE
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingPhotoId(null)}
+                                      style={{
+                                        padding: "5px 10px",
+                                        opacity: 0.65,
+                                        fontSize: "10px",
+                                        letterSpacing: "0.12em",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      CANCEL
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div style={{ display: "flex", gap: "10px", fontSize: "10px", letterSpacing: "0.12em" }}>
+                                  <button
+                                    onClick={() => startEditPhoto(photo)}
+                                    style={{ cursor: "pointer", opacity: 0.8 }}
+                                  >
+                                    EDIT
+                                  </button>
+                                  <span>·</span>
+                                  {!photo.isCover && (
+                                    <>
+                                      <button
+                                        onClick={() => handleSetPhotoCover(photo.id)}
+                                        style={{ cursor: "pointer", opacity: 0.8 }}
+                                      >
+                                        SET AS COVER
+                                      </button>
+                                      <span>·</span>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeletePhoto(photo)}
+                                    style={{ cursor: "pointer", opacity: 0.8, color: "#c94a4a" }}
+                                  >
+                                    DELETE
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: "grid", gap: "24px" }}>
+                    <form
+                      onSubmit={handleCreateExhibition}
+                      style={{
+                        padding: "16px",
+                        border: "1px solid currentColor",
+                        display: "grid",
+                        gap: "10px",
+                      }}
+                    >
+                      <p className="eyebrow">CREATE NEW EXHIBITION ROOM</p>
+                      <input
+                        required
+                        value={newExTitle}
+                        onChange={(e) => setNewExTitle(e.target.value)}
+                        placeholder="Exhibition title (e.g. Night Trains)"
+                        style={{
+                          padding: "8px 10px",
+                          border: "1px solid currentColor",
+                          background: "transparent",
+                          color: "inherit",
+                          fontSize: "13px",
+                        }}
+                      />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        <input
+                          value={newExLocation}
+                          onChange={(e) => setNewExLocation(e.target.value)}
+                          placeholder="Location (e.g. TOKYO, JP)"
+                          style={{
+                            padding: "8px 10px",
+                            border: "1px solid currentColor",
+                            background: "transparent",
+                            color: "inherit",
+                            fontSize: "12px",
+                          }}
+                        />
+                        <input
+                          value={newExPeriod}
+                          onChange={(e) => setNewExPeriod(e.target.value)}
+                          placeholder="Period (e.g. 2025—2026)"
+                          style={{
+                            padding: "8px 10px",
+                            border: "1px solid currentColor",
+                            background: "transparent",
+                            color: "inherit",
+                            fontSize: "12px",
+                          }}
+                        />
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={newExDesc}
+                        onChange={(e) => setNewExDesc(e.target.value)}
+                        placeholder="Curatorial statement for this series..."
+                        style={{
+                          padding: "8px 10px",
+                          border: "1px solid currentColor",
+                          background: "transparent",
+                          color: "inherit",
+                          fontSize: "12px",
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={creatingEx}
+                        style={{
+                          padding: "9px 14px",
+                          border: "1px solid currentColor",
+                          fontSize: "11px",
+                          letterSpacing: "0.14em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {creatingEx ? "CREATING..." : "+ CREATE EXHIBITION"}
+                      </button>
+                    </form>
+
+                    <div className="studio-list">
+                      <div className="studio-list-head">
+                        <span>YOUR EXHIBITIONS ({myOwnExhibitions.length})</span>
+                      </div>
+                      {myOwnExhibitions.map((ex, i) => {
+                        const count = myOwnPhotos.filter((p) => p.exhibition_id === ex.id).length;
+                        return (
+                          <div
+                            key={ex.id}
+                            className="studio-item"
+                            style={{ justifyContent: "space-between" }}
+                          >
+                            <div>
+                              <p className="studio-item-title">
+                                {String(i + 1).padStart(2, "0")}. {ex.title}
+                              </p>
+                              <p className="studio-item-specs">
+                                {ex.location} · {ex.period} · {count} FRAMES
+                              </p>
+                            </div>
+                            {myOwnExhibitions.length > 1 && (
+                              <button
+                                onClick={() => handleDeleteExhibition(ex.id)}
+                                style={{
+                                  fontSize: "10px",
+                                  letterSpacing: "0.12em",
+                                  color: "#c94a4a",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                DELETE
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <p className="credit">IMAGE: {currentPhoto.credit}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+              </div>
+            </motion.aside>
           </motion.div>
         )}
       </AnimatePresence>
-    </main>
+
+      {/* ==================== 全螢幕燈箱檢視 ==================== */}
+      <AnimatePresence>
+        {currentLightboxPhoto && activePhoto !== null && (
+          <motion.div
+            className="lightbox"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45 }}
+            onClick={() => setActivePhoto(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label={currentLightboxPhoto.title}
+          >
+            <div className="lightbox-bar" onClick={(event) => event.stopPropagation()}>
+              <span>
+                {String(activePhoto + 1).padStart(2, "0")} /{" "}
+                {String(exhibitionPhotos.length).padStart(2, "0")}
+              </span>
+              <div className="lightbox-controls">
+                <button onClick={() => setShowInfo((prev) => !prev)}>
+                  {showInfo ? "HIDE INFO [I]" : "SHOW INFO [I]"}
+                </button>
+                <button onClick={() => setActivePhoto(null)}>CLOSE [ESC]</button>
+              </div>
+            </div>
+
+            <div className="lightbox-stage" onClick={(event) => event.stopPropagation()}>
+              <button
+                className="lightbox-nav prev"
+                onClick={() =>
+                  setActivePhoto(
+                    (activePhoto - 1 + exhibitionPhotos.length) % exhibitionPhotos.length,
+                  )
+                }
+                aria-label="Previous photograph"
+              >
+                ←
+              </button>
+
+              <motion.img
+                key={currentLightboxPhoto.src}
+                src={currentLightboxPhoto.src}
+                alt={currentLightboxPhoto.alt}
+                initial={{ opacity: 0, scale: 0.985 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.45, ease }}
+              />
+
+              <button
+                className="lightbox-nav next"
+                onClick={() => setActivePhoto((activePhoto + 1) % exhibitionPhotos.length)}
+                aria-label="Next photograph"
+              >
+                →
+              </button>
+            </div>
+
+            {showInfo && (
+              <div className="lightbox-caption" onClick={(event) => event.stopPropagation()}>
+                <div>
+                  <strong>{currentLightboxPhoto.title}</strong>
+                  <span>{currentLightboxPhoto.year}</span>
+                </div>
+                <p>{currentLightboxPhoto.specs}</p>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
