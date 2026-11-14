@@ -49,8 +49,8 @@ type ActivityDay = {
   thumbnail: string;
 };
 
-// 瀏覽器端高畫質圖片壓縮工具（長邊上限 2400px，保留展覽級畫質並大幅節省空間）
-async function compressImageForGallery(file: File, maxDimension = 2400, quality = 0.88): Promise<Blob> {
+// 高清展覽級圖片優化（長邊上限 2400px、0.92 高畫質，保留細節同時加快載入）
+async function compressImageForGallery(file: File, maxDimension = 2400, quality = 0.92): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -59,7 +59,7 @@ async function compressImageForGallery(file: File, maxDimension = 2400, quality 
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
 
-      if (width <= maxDimension && height <= maxDimension && file.size <= 1.2 * 1024 * 1024) {
+      if (width <= maxDimension && height <= maxDimension && file.size <= 1.8 * 1024 * 1024) {
         resolve(file);
         return;
       }
@@ -455,11 +455,7 @@ function DiscoverView({
           >
             Studio Folio
           </motion.h1>
-          <button
-            onClick={onOpenStudioOrLogin}
-            className="availability"
-            style={{ cursor: "pointer", background: "none", border: "none", color: "inherit" }}
-          >
+          <button onClick={onOpenStudioOrLogin} className="availability" style={{ cursor: "pointer" }}>
             <span />
             {currentUserId ? "ENTER MY GALLERY →" : "OPEN YOUR ARTIST GALLERY →"}
           </button>
@@ -479,7 +475,7 @@ function DiscoverView({
             <p className="eyebrow">ARTIST DIRECTORY</p>
             <h2>Resident galleries.</h2>
           </div>
-          <div style={{ display: "flex", gap: "14px", fontSize: "11px", letterSpacing: "0.14em" }}>
+          <div style={{ display: "flex", gap: "14px", fontSize: "9px", letterSpacing: "0.14em" }}>
             <button
               onClick={() => setFilter("all")}
               style={{
@@ -551,7 +547,7 @@ function DiscoverView({
   );
 }
 
-/* ==================== 藝術家個人畫廊 ==================== */
+/* ==================== 藝術家個人畫廊（保留原本大氣留白與標題比例） ==================== */
 function ArtistGalleryProfileView({
   artist,
   artistPhotos,
@@ -653,19 +649,11 @@ function ArtistGalleryProfileView({
     >
       <section className="profile-hero" id="top">
         <div className="profile-kicker">
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <button
-              onClick={onBackToDiscover}
-              style={{
-                fontSize: "11px",
-                letterSpacing: "0.14em",
-                opacity: 0.65,
-                cursor: "pointer",
-              }}
-            >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button onClick={onBackToDiscover} className="eyebrow" style={{ cursor: "pointer" }}>
               ← ALL ARTISTS
             </button>
-            <span>/</span>
+            <span className="eyebrow">/</span>
             <p className="eyebrow">PHOTOGRAPHER / ARTIST</p>
           </div>
           <p>{artist.location}</p>
@@ -680,7 +668,7 @@ function ArtistGalleryProfileView({
             {artist.display_name}
           </motion.h1>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "12px" }}>
             <div className="availability" style={{ opacity: artist.available_for_commissions ? 1 : 0.45 }}>
               <span style={{ background: artist.available_for_commissions ? undefined : "#888" }} />
               {artist.available_for_commissions
@@ -688,34 +676,33 @@ function ArtistGalleryProfileView({
                 : "ARCHIVE / NOT TAKING COMMISSIONS"}
             </div>
 
-            <button
-              onClick={handleCopyShareLink}
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.16em",
-                padding: "5px 10px",
-                border: "1px solid currentColor",
-                cursor: "pointer",
-                opacity: 0.85,
-              }}
-            >
-              {copiedLink ? "✓ LINK COPIED" : "SHARE GALLERY LINK"}
-            </button>
-
-            {isOwnProfile && (
+            <div style={{ display: "flex", gap: "10px" }}>
               <button
-                onClick={() => setIsEditing((v) => !v)}
+                onClick={handleCopyShareLink}
+                className="text-button"
                 style={{
-                  fontSize: "10px",
-                  letterSpacing: "0.16em",
-                  padding: "5px 10px",
-                  border: "1px solid currentColor",
-                  cursor: "pointer",
+                  fontSize: "9px",
+                  padding: "6px 10px",
+                  border: "1px solid var(--line)",
                 }}
               >
-                {isEditing ? "CANCEL EDIT" : "EDIT GALLERY PROFILE"}
+                {copiedLink ? "✓ LINK COPIED" : "SHARE GALLERY LINK"}
               </button>
-            )}
+
+              {isOwnProfile && (
+                <button
+                  onClick={() => setIsEditing((v) => !v)}
+                  className="text-button"
+                  style={{
+                    fontSize: "9px",
+                    padding: "6px 10px",
+                    border: "1px solid var(--line)",
+                  }}
+                >
+                  {isEditing ? "CANCEL" : "EDIT PROFILE"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -723,44 +710,44 @@ function ArtistGalleryProfileView({
           <form
             onSubmit={handleSave}
             style={{
-              marginTop: "24px",
-              padding: "20px",
-              border: "1px solid currentColor",
+              marginTop: "32px",
+              padding: "24px",
+              border: "1px solid var(--line)",
               display: "grid",
-              gap: "12px",
+              gap: "14px",
               maxWidth: "620px",
             }}
           >
             <p className="eyebrow">CUSTOMIZE YOUR ARTIST GALLERY</p>
-            <label style={{ display: "grid", gap: "4px", fontSize: "11px", letterSpacing: "0.1em" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
               ARTIST / STUDIO NAME
               <input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 style={{
                   padding: "8px 10px",
-                  border: "1px solid currentColor",
+                  border: "1px solid var(--line)",
                   background: "transparent",
                   color: "inherit",
                   fontSize: "14px",
                 }}
               />
             </label>
-            <label style={{ display: "grid", gap: "4px", fontSize: "11px", letterSpacing: "0.1em" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
               LOCATION & BASE
               <input
                 value={editLocation}
                 onChange={(e) => setEditLocation(e.target.value)}
                 style={{
                   padding: "8px 10px",
-                  border: "1px solid currentColor",
+                  border: "1px solid var(--line)",
                   background: "transparent",
                   color: "inherit",
                   fontSize: "13px",
                 }}
               />
             </label>
-            <label style={{ display: "grid", gap: "4px", fontSize: "11px", letterSpacing: "0.1em" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
               ARTIST STATEMENT / BIO
               <textarea
                 rows={3}
@@ -768,7 +755,7 @@ function ArtistGalleryProfileView({
                 onChange={(e) => setEditBio(e.target.value)}
                 style={{
                   padding: "8px 10px",
-                  border: "1px solid currentColor",
+                  border: "1px solid var(--line)",
                   background: "transparent",
                   color: "inherit",
                   fontSize: "13px",
@@ -776,21 +763,21 @@ function ArtistGalleryProfileView({
                 }}
               />
             </label>
-            <label style={{ display: "grid", gap: "4px", fontSize: "11px", letterSpacing: "0.1em" }}>
-              SPECIALTIES (E.G. EDITORIAL · STREET · ANALOG)
+            <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
+              SPECIALTIES
               <input
                 value={editSpecialty}
                 onChange={(e) => setEditSpecialty(e.target.value)}
                 style={{
                   padding: "8px 10px",
-                  border: "1px solid currentColor",
+                  border: "1px solid var(--line)",
                   background: "transparent",
                   color: "inherit",
                   fontSize: "13px",
                 }}
               />
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "10px", cursor: "pointer" }}>
               <input
                 type="checkbox"
                 checked={editAvailable}
@@ -798,18 +785,8 @@ function ArtistGalleryProfileView({
               />
               SHOW &ldquo;AVAILABLE FOR COMMISSIONS&rdquo; STATUS
             </label>
-            <div style={{ display: "flex", gap: "10px", marginTop: "6px" }}>
-              <button
-                type="submit"
-                disabled={saving}
-                style={{
-                  padding: "9px 18px",
-                  border: "1px solid currentColor",
-                  fontSize: "11px",
-                  letterSpacing: "0.14em",
-                  cursor: "pointer",
-                }}
-              >
+            <div>
+              <button type="submit" disabled={saving} className="studio-button">
                 {saving ? "SAVING..." : "SAVE GALLERY PROFILE"}
               </button>
             </div>
@@ -897,28 +874,18 @@ function ArtistGalleryProfileView({
           ) : (
             <div
               style={{
-                padding: "48px 24px",
-                border: "1px dashed currentColor",
-                opacity: 0.75,
+                padding: "56px 24px",
+                border: "1px dashed var(--line)",
                 textAlign: "center",
               }}
             >
-              <p style={{ fontSize: "13px", marginBottom: "14px" }}>
+              <p style={{ fontSize: "13px", marginBottom: "18px", color: "var(--muted)" }}>
                 {isOwnProfile
-                  ? "Your gallery wall is currently empty. Create an exhibition or upload your first photographs."
+                  ? "Your gallery wall is currently empty. Open Studio to upload your first photographs."
                   : `${artist.display_name} has not published exhibitions yet.`}
               </p>
               {isOwnProfile && (
-                <button
-                  onClick={onOpenStudio}
-                  style={{
-                    padding: "10px 20px",
-                    border: "1px solid currentColor",
-                    fontSize: "11px",
-                    letterSpacing: "0.15em",
-                    cursor: "pointer",
-                  }}
-                >
+                <button onClick={onOpenStudio} className="studio-button">
                   + OPEN STUDIO TO CURATE
                 </button>
               )}
@@ -940,10 +907,8 @@ function ArtistGalleryProfileView({
 function EditorialGallery({ photos }: { photos: Photograph[] }) {
   if (photos.length === 0) {
     return (
-      <div style={{ padding: "60px 6vw", textAlign: "center", opacity: 0.65 }}>
-        <p style={{ fontSize: "13px", letterSpacing: "0.1em" }}>
-          THIS EXHIBITION ROOM CURRENTLY HAS NO PHOTOGRAPHS ASSIGNED.
-        </p>
+      <div style={{ padding: "80px 6vw", textAlign: "center", color: "var(--muted)" }}>
+        <p className="eyebrow">THIS EXHIBITION ROOM CURRENTLY HAS NO PHOTOGRAPHS ASSIGNED.</p>
       </div>
     );
   }
@@ -1073,31 +1038,24 @@ function ExhibitionView({
             justifyContent: "space-between",
             flexWrap: "wrap",
             gap: "12px",
-            marginBottom: "10px",
+            marginBottom: "18px",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button
-              onClick={onBackToArtist}
-              style={{ fontSize: "11px", letterSpacing: "0.14em", opacity: 0.65, cursor: "pointer" }}
-            >
+            <button onClick={onBackToArtist} className="eyebrow" style={{ cursor: "pointer" }}>
               ← {artist.display_name.toUpperCase()}
             </button>
-            <span>/</span>
-            <p className="eyebrow" style={{ margin: 0 }}>
-              {exNumberStr}
-            </p>
+            <span className="eyebrow">/</span>
+            <p className="eyebrow">{exNumberStr}</p>
           </div>
 
           <button
             onClick={handleCopyExhibitionLink}
+            className="text-button"
             style={{
-              fontSize: "10px",
-              letterSpacing: "0.14em",
-              padding: "4px 9px",
-              border: "1px solid currentColor",
-              cursor: "pointer",
-              opacity: 0.8,
+              fontSize: "9px",
+              padding: "5px 10px",
+              border: "1px solid var(--line)",
             }}
           >
             {copiedExLink ? "✓ EXHIBITION LINK COPIED" : "SHARE EXHIBITION LINK"}
@@ -1573,7 +1531,6 @@ export default function App() {
     await fetchAllCloudData();
   };
 
-  // 上傳照片：先讀取原圖 EXIF，再壓縮至 2400px 展覽級畫質後上傳至 Supabase Storage
   const handleUploadFiles = async (fileList: FileList | File[]) => {
     if (!user) {
       alert("請先點擊右上角 SIGN IN 登入你的藝術家帳號再上傳作品！");
@@ -1584,9 +1541,8 @@ export default function App() {
     if (filesArray.length === 0) return;
 
     setIsUploading(true);
-    setUploadStatusText("READING EXIF & COMPRESSING...");
+    setUploadStatusText("READING EXIF & OPTIMIZING...");
     try {
-      // 1. 先從原始相機檔案讀取 EXIF 拍攝參數與日期
       const parsedList = await parsePhotographs(filesArray);
       const myProfile = cloudProfiles.find((p) => p.id === user.id);
       const artistCredit = (myProfile?.display_name || "ARTIST ARCHIVE").toUpperCase();
@@ -1597,8 +1553,7 @@ export default function App() {
         const meta = parsedList[i];
         setUploadStatusText(`OPTIMIZING & UPLOADING ${i + 1} / ${filesArray.length}...`);
 
-        // 2. 在瀏覽器端壓縮高畫質展示圖（長邊上限 2400px）
-        const optimizedBlob = await compressImageForGallery(file, 2400, 0.88);
+        const optimizedBlob = await compressImageForGallery(file, 2400, 0.92);
         const fileExt = optimizedBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
         const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
@@ -1641,10 +1596,6 @@ export default function App() {
       setUploadStatusText("");
     }
   };
-
-  useEffect(() => {
-    document.body.dataset.theme = dark ? "dark" : "light";
-  }, [dark]);
 
   useEffect(() => {
     const openPhoto = (event: Event) => {
@@ -1693,7 +1644,7 @@ export default function App() {
 
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
+    if (!q) return { matchedArtists: [], matchedPhotos: [] };
     const matchedArtists = allArtists.filter(
       (a) =>
         a.display_name.toLowerCase().includes(q) ||
@@ -1711,7 +1662,7 @@ export default function App() {
 
   return (
     <div
-      className="site-shell"
+      className={dark ? "site darkroom" : "site"}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDragging(true);
@@ -1751,15 +1702,16 @@ export default function App() {
             onDragLeave={() => setIsDragging(false)}
           >
             <div className="dropzone-box">
-              <p className="eyebrow">AUTO-OPTIMIZE & EXIF SYNC</p>
+              <p className="eyebrow">HD ARCHIVAL OPTIMIZATION & EXIF SYNC</p>
               <h2>Drop photographs to publish to your gallery</h2>
-              <p>Images will be auto-compressed to 2400px archival quality before upload.</p>
+              <p>Optimized to 2400px archival quality with camera metadata preserved.</p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <header className="site-header">
+      {/* 原本的頂部導覽列結構：topbar + wordmark + top-actions */}
+      <header className="topbar">
         <button
           className="wordmark"
           onClick={() => {
@@ -1771,9 +1723,9 @@ export default function App() {
           STUDIO FOLIO
         </button>
 
-        <nav aria-label="Primary navigation">
+        <nav className="top-actions" aria-label="Primary navigation">
           <button
-            className={view === "discover" ? "active" : ""}
+            className={`text-button ${view === "discover" ? "active-link" : ""}`}
             onClick={() => {
               setView("discover");
               syncUrl("discover");
@@ -1785,7 +1737,7 @@ export default function App() {
 
           {user && (
             <button
-              className={view !== "discover" && selectedArtistId === user.id ? "active" : ""}
+              className={`text-button ${view !== "discover" && selectedArtistId === user.id ? "active-link" : ""}`}
               onClick={() => {
                 setSelectedArtistId(user.id);
                 setView("artist");
@@ -1797,34 +1749,37 @@ export default function App() {
             </button>
           )}
 
-          {user && (
-            <button
-              className={studioOpen ? "active" : ""}
-              onClick={() => setStudioOpen(true)}
-            >
-              STUDIO ({myOwnPhotos.length})
-            </button>
-          )}
-
-          <button onClick={() => setSearchOpen(true)} aria-label="Search artists and works">
+          <button
+            className="text-button"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Search artists and works"
+          >
             SEARCH
           </button>
 
-          {user ? (
-            <button onClick={handleLogout} title={user.email}>
-              SIGN OUT
-            </button>
-          ) : (
-            <button onClick={handleGoogleLogin}>SIGN IN</button>
-          )}
-
           <button
-            className="theme-toggle"
+            className="text-button theme-button"
             onClick={() => setDark((prev) => !prev)}
             aria-label={`Switch to ${dark ? "daylight" : "darkroom"} theme`}
           >
+            <i className="theme-mark" aria-hidden="true" />
             {dark ? "DAYLIGHT" : "DARKROOM"}
           </button>
+
+          {user ? (
+            <>
+              <button className="studio-button" onClick={() => setStudioOpen(true)}>
+                STUDIO ({myOwnPhotos.length})
+              </button>
+              <button className="text-button" onClick={handleLogout} title={user.email}>
+                SIGN OUT
+              </button>
+            </>
+          ) : (
+            <button className="studio-button" onClick={handleGoogleLogin}>
+              SIGN IN
+            </button>
+          )}
         </nav>
       </header>
 
@@ -1931,7 +1886,7 @@ export default function App() {
                   style={{
                     width: "100%",
                     padding: "12px 14px",
-                    border: "1px solid currentColor",
+                    border: "1px solid var(--line)",
                     background: "transparent",
                     color: "inherit",
                     fontSize: "14px",
@@ -1943,9 +1898,9 @@ export default function App() {
                   <div style={{ display: "grid", gap: "24px" }}>
                     <div>
                       <p className="eyebrow" style={{ marginBottom: "10px" }}>
-                        ARTISTS ({searchResults.matchedArtists?.length || 0})
+                        ARTISTS ({searchResults.matchedArtists.length})
                       </p>
-                      {searchResults.matchedArtists?.map((a) => (
+                      {searchResults.matchedArtists.map((a) => (
                         <button
                           key={a.id}
                           onClick={() => {
@@ -1959,12 +1914,12 @@ export default function App() {
                             width: "100%",
                             textAlign: "left",
                             padding: "10px 0",
-                            borderBottom: "1px solid rgba(128,128,128,0.25)",
+                            borderBottom: "1px solid var(--line)",
                             cursor: "pointer",
                           }}
                         >
                           <strong>{a.display_name}</strong>
-                          <span style={{ display: "block", fontSize: "11px", opacity: 0.65 }}>
+                          <span style={{ display: "block", fontSize: "11px", color: "var(--muted)" }}>
                             {a.location} · {a.specialty}
                           </span>
                         </button>
@@ -1973,9 +1928,9 @@ export default function App() {
 
                     <div>
                       <p className="eyebrow" style={{ marginBottom: "10px" }}>
-                        PHOTOGRAPHS ({searchResults.matchedPhotos?.length || 0})
+                        PHOTOGRAPHS ({searchResults.matchedPhotos.length})
                       </p>
-                      {searchResults.matchedPhotos?.map((p, i) => (
+                      {searchResults.matchedPhotos.map((p, i) => (
                         <button
                           key={p.id || i}
                           onClick={() => {
@@ -1993,7 +1948,7 @@ export default function App() {
                             width: "100%",
                             textAlign: "left",
                             padding: "8px 0",
-                            borderBottom: "1px solid rgba(128,128,128,0.25)",
+                            borderBottom: "1px solid var(--line)",
                             cursor: "pointer",
                           }}
                         >
@@ -2004,7 +1959,7 @@ export default function App() {
                           />
                           <div>
                             <strong>{p.title}</strong>
-                            <span style={{ display: "block", fontSize: "11px", opacity: 0.65 }}>
+                            <span style={{ display: "block", fontSize: "11px", color: "var(--muted)" }}>
                               {p.credit} · {p.specs}
                             </span>
                           </div>
@@ -2052,8 +2007,8 @@ export default function App() {
                   display: "flex",
                   gap: "18px",
                   padding: "12px 24px",
-                  borderBottom: "1px solid rgba(128,128,128,0.25)",
-                  fontSize: "11px",
+                  borderBottom: "1px solid var(--line)",
+                  fontSize: "10px",
                   letterSpacing: "0.14em",
                 }}
               >
@@ -2087,7 +2042,7 @@ export default function App() {
                         style={{
                           display: "grid",
                           gap: "6px",
-                          fontSize: "11px",
+                          fontSize: "10px",
                           letterSpacing: "0.12em",
                           marginBottom: "14px",
                         }}
@@ -2098,9 +2053,9 @@ export default function App() {
                           onChange={(e) => setTargetExhibitionId(e.target.value)}
                           style={{
                             padding: "8px 10px",
-                            border: "1px solid currentColor",
-                            background: dark ? "#141312" : "#f7f5f0",
-                            color: "inherit",
+                            border: "1px solid var(--line)",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
                             fontSize: "12px",
                           }}
                         >
@@ -2117,14 +2072,14 @@ export default function App() {
                       className="studio-drop-area"
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <p className="eyebrow">AUTO-COMPRESS 2400PX + EXIF SYNC</p>
+                      <p className="eyebrow">HD 2400PX ARCHIVAL + EXIF SYNC</p>
                       <p className="drop-title">
                         {isUploading
                           ? uploadStatusText || "UPLOADING..."
                           : "+ Select or Drop Photographs to Publish"}
                       </p>
                       <p className="drop-sub">
-                        High-res camera files are automatically optimized before uploading.
+                        Auto-optimized to 2400px high-definition JPEG before upload.
                       </p>
                     </div>
 
@@ -2134,7 +2089,7 @@ export default function App() {
                       </div>
 
                       {myOwnPhotos.length === 0 ? (
-                        <p style={{ fontSize: "12px", opacity: 0.65, padding: "18px 0" }}>
+                        <p style={{ fontSize: "12px", color: "var(--muted)", padding: "18px 0" }}>
                           No photographs uploaded yet. Click above to add your first works.
                         </p>
                       ) : (
@@ -2152,15 +2107,15 @@ export default function App() {
                             >
                               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                                 <img src={photo.src} alt={photo.alt} />
-                                <div className="studio-item-meta" style={{ flex: 1 }}>
+                                <div style={{ flex: 1 }}>
                                   <p className="studio-item-title">
                                     {photo.title}{" "}
                                     {photo.isCover && (
                                       <span
                                         style={{
-                                          fontSize: "9px",
+                                          fontSize: "8px",
                                           padding: "2px 6px",
-                                          border: "1px solid currentColor",
+                                          border: "1px solid var(--line)",
                                           marginLeft: "6px",
                                         }}
                                       >
@@ -2182,7 +2137,7 @@ export default function App() {
                                     display: "grid",
                                     gap: "8px",
                                     padding: "10px",
-                                    border: "1px solid currentColor",
+                                    border: "1px solid var(--line)",
                                   }}
                                 >
                                   <input
@@ -2191,7 +2146,7 @@ export default function App() {
                                     placeholder="Artwork title"
                                     style={{
                                       padding: "6px 8px",
-                                      border: "1px solid currentColor",
+                                      border: "1px solid var(--line)",
                                       background: "transparent",
                                       color: "inherit",
                                       fontSize: "12px",
@@ -2203,7 +2158,7 @@ export default function App() {
                                     placeholder="Camera & lens specs"
                                     style={{
                                       padding: "6px 8px",
-                                      border: "1px solid currentColor",
+                                      border: "1px solid var(--line)",
                                       background: "transparent",
                                       color: "inherit",
                                       fontSize: "11px",
@@ -2215,9 +2170,9 @@ export default function App() {
                                       onChange={(e) => setEditPhotoExId(e.target.value)}
                                       style={{
                                         padding: "6px 8px",
-                                        border: "1px solid currentColor",
-                                        background: dark ? "#141312" : "#f7f5f0",
-                                        color: "inherit",
+                                        border: "1px solid var(--line)",
+                                        background: "var(--paper)",
+                                        color: "var(--ink)",
                                         fontSize: "11px",
                                       }}
                                     >
@@ -2229,39 +2184,21 @@ export default function App() {
                                     </select>
                                   )}
                                   <div style={{ display: "flex", gap: "8px" }}>
-                                    <button
-                                      type="submit"
-                                      style={{
-                                        padding: "5px 10px",
-                                        border: "1px solid currentColor",
-                                        fontSize: "10px",
-                                        letterSpacing: "0.12em",
-                                        cursor: "pointer",
-                                      }}
-                                    >
+                                    <button type="submit" className="studio-button" style={{ padding: "5px 10px" }}>
                                       SAVE
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => setEditingPhotoId(null)}
-                                      style={{
-                                        padding: "5px 10px",
-                                        opacity: 0.65,
-                                        fontSize: "10px",
-                                        letterSpacing: "0.12em",
-                                        cursor: "pointer",
-                                      }}
+                                      className="text-button"
                                     >
                                       CANCEL
                                     </button>
                                   </div>
                                 </form>
                               ) : (
-                                <div style={{ display: "flex", gap: "10px", fontSize: "10px", letterSpacing: "0.12em" }}>
-                                  <button
-                                    onClick={() => startEditPhoto(photo)}
-                                    style={{ cursor: "pointer", opacity: 0.8 }}
-                                  >
+                                <div style={{ display: "flex", gap: "10px", fontSize: "9px", letterSpacing: "0.12em" }}>
+                                  <button onClick={() => startEditPhoto(photo)} style={{ cursor: "pointer" }}>
                                     EDIT
                                   </button>
                                   <span>·</span>
@@ -2269,7 +2206,7 @@ export default function App() {
                                     <>
                                       <button
                                         onClick={() => handleSetPhotoCover(photo.id)}
-                                        style={{ cursor: "pointer", opacity: 0.8 }}
+                                        style={{ cursor: "pointer" }}
                                       >
                                         SET AS COVER
                                       </button>
@@ -2278,7 +2215,7 @@ export default function App() {
                                   )}
                                   <button
                                     onClick={() => handleDeletePhoto(photo)}
-                                    style={{ cursor: "pointer", opacity: 0.8, color: "#c94a4a" }}
+                                    style={{ cursor: "pointer", color: "#bd372d" }}
                                   >
                                     DELETE
                                   </button>
@@ -2296,7 +2233,7 @@ export default function App() {
                       onSubmit={handleCreateExhibition}
                       style={{
                         padding: "16px",
-                        border: "1px solid currentColor",
+                        border: "1px solid var(--line)",
                         display: "grid",
                         gap: "10px",
                       }}
@@ -2309,7 +2246,7 @@ export default function App() {
                         placeholder="Exhibition title (e.g. Night Trains)"
                         style={{
                           padding: "8px 10px",
-                          border: "1px solid currentColor",
+                          border: "1px solid var(--line)",
                           background: "transparent",
                           color: "inherit",
                           fontSize: "13px",
@@ -2322,7 +2259,7 @@ export default function App() {
                           placeholder="Location (e.g. TOKYO, JP)"
                           style={{
                             padding: "8px 10px",
-                            border: "1px solid currentColor",
+                            border: "1px solid var(--line)",
                             background: "transparent",
                             color: "inherit",
                             fontSize: "12px",
@@ -2334,7 +2271,7 @@ export default function App() {
                           placeholder="Period (e.g. 2025—2026)"
                           style={{
                             padding: "8px 10px",
-                            border: "1px solid currentColor",
+                            border: "1px solid var(--line)",
                             background: "transparent",
                             color: "inherit",
                             fontSize: "12px",
@@ -2348,24 +2285,14 @@ export default function App() {
                         placeholder="Curatorial statement for this series..."
                         style={{
                           padding: "8px 10px",
-                          border: "1px solid currentColor",
+                          border: "1px solid var(--line)",
                           background: "transparent",
                           color: "inherit",
                           fontSize: "12px",
                           fontFamily: "inherit",
                         }}
                       />
-                      <button
-                        type="submit"
-                        disabled={creatingEx}
-                        style={{
-                          padding: "9px 14px",
-                          border: "1px solid currentColor",
-                          fontSize: "11px",
-                          letterSpacing: "0.14em",
-                          cursor: "pointer",
-                        }}
-                      >
+                      <button type="submit" disabled={creatingEx} className="studio-button">
                         {creatingEx ? "CREATING..." : "+ CREATE EXHIBITION"}
                       </button>
                     </form>
@@ -2394,9 +2321,9 @@ export default function App() {
                               <button
                                 onClick={() => handleDeleteExhibition(ex.id)}
                                 style={{
-                                  fontSize: "10px",
+                                  fontSize: "9px",
                                   letterSpacing: "0.12em",
-                                  color: "#c94a4a",
+                                  color: "#bd372d",
                                   cursor: "pointer",
                                 }}
                               >
