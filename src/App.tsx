@@ -1231,6 +1231,7 @@ export default function App() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [studioNotice, setStudioNotice] = useState<string | null>(null);
 
+  // Empty string "" represents unassigned / general archive (stored as null in database)
   const [targetExhibitionId, setTargetExhibitionId] = useState<string>("");
   const [newExTitle, setNewExTitle] = useState("");
   const [newExLocation, setNewExLocation] = useState("TAIPEI, TW");
@@ -1353,12 +1354,6 @@ export default function App() {
     () => (user ? cloudPhotos.filter((p) => p.user_id === user.id) : []),
     [cloudPhotos, user],
   );
-
-  useEffect(() => {
-    if (myOwnExhibitions.length > 0 && !targetExhibitionId) {
-      setTargetExhibitionId(myOwnExhibitions[0].id);
-    }
-  }, [myOwnExhibitions, targetExhibitionId]);
 
   const fetchAllCloudData = async () => {
     const [{ data: profilesData }, { data: exData }, { data: photosData }] = await Promise.all([
@@ -1570,7 +1565,7 @@ export default function App() {
     setEditingPhotoId(photo.id);
     setEditPhotoTitle(photo.title);
     setEditPhotoSpecs(photo.specs);
-    setEditPhotoExId(photo.exhibition_id || myOwnExhibitions[0]?.id || "");
+    setEditPhotoExId(photo.exhibition_id || "");
   };
 
   const handleSavePhotoEdit = async (e: React.FormEvent) => {
@@ -1661,7 +1656,8 @@ export default function App() {
       const parsedList = await parsePhotographs(filesArray);
       const myProfile = cloudProfiles.find((p) => p.id === user.id);
       const artistCredit = (myProfile?.display_name || "ARTIST ARCHIVE").toUpperCase();
-      const chosenExId = targetExhibitionId || myOwnExhibitions[0]?.id || null;
+      // Allows null when targetExhibitionId is empty ("UNASSIGNED / GENERAL ARCHIVE")
+      const chosenExId = targetExhibitionId || null;
 
       for (let i = 0; i < filesArray.length; i++) {
         const file = filesArray[i];
@@ -2210,36 +2206,35 @@ export default function App() {
               <div className="studio-body">
                 {studioTab === "photos" ? (
                   <>
-                    {myOwnExhibitions.length > 0 && (
-                      <label
+                    <label
+                      style={{
+                        display: "grid",
+                        gap: "6px",
+                        fontSize: "10px",
+                        letterSpacing: "0.12em",
+                        marginBottom: "14px",
+                      }}
+                    >
+                      TARGET EXHIBITION ROOM (OPTIONAL):
+                      <select
+                        value={targetExhibitionId}
+                        onChange={(e) => setTargetExhibitionId(e.target.value)}
                         style={{
-                          display: "grid",
-                          gap: "6px",
-                          fontSize: "10px",
-                          letterSpacing: "0.12em",
-                          marginBottom: "14px",
+                          padding: "8px 10px",
+                          border: "1px solid var(--line)",
+                          background: "var(--paper)",
+                          color: "var(--ink)",
+                          fontSize: "12px",
                         }}
                       >
-                        TARGET EXHIBITION ROOM FOR NEW UPLOADS:
-                        <select
-                          value={targetExhibitionId}
-                          onChange={(e) => setTargetExhibitionId(e.target.value)}
-                          style={{
-                            padding: "8px 10px",
-                            border: "1px solid var(--line)",
-                            background: "var(--paper)",
-                            color: "var(--ink)",
-                            fontSize: "12px",
-                          }}
-                        >
-                          {myOwnExhibitions.map((ex) => (
-                            <option key={ex.id} value={ex.id}>
-                              {ex.title} ({ex.period})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
+                        <option value="">UNASSIGNED / GENERAL ARCHIVE</option>
+                        {myOwnExhibitions.map((ex) => (
+                          <option key={ex.id} value={ex.id}>
+                            {ex.title} ({ex.period})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
                     <div
                       className="studio-drop-area"
@@ -2305,7 +2300,7 @@ export default function App() {
                                     )}
                                   </p>
                                   <p className="studio-item-specs">
-                                    {assignedEx ? `[${assignedEx.title}] · ` : ""}
+                                    {assignedEx ? `[${assignedEx.title}] · ` : "[UNASSIGNED] · "}
                                     {photo.specs}
                                   </p>
                                 </div>
@@ -2345,25 +2340,24 @@ export default function App() {
                                       fontSize: "11px",
                                     }}
                                   />
-                                  {myOwnExhibitions.length > 0 && (
-                                    <select
-                                      value={editPhotoExId}
-                                      onChange={(e) => setEditPhotoExId(e.target.value)}
-                                      style={{
-                                        padding: "6px 8px",
-                                        border: "1px solid var(--line)",
-                                        background: "var(--paper)",
-                                        color: "var(--ink)",
-                                        fontSize: "11px",
-                                      }}
-                                    >
-                                      {myOwnExhibitions.map((ex) => (
-                                        <option key={ex.id} value={ex.id}>
-                                          Exhibition: {ex.title}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
+                                  <select
+                                    value={editPhotoExId}
+                                    onChange={(e) => setEditPhotoExId(e.target.value)}
+                                    style={{
+                                      padding: "6px 8px",
+                                      border: "1px solid var(--line)",
+                                      background: "var(--paper)",
+                                      color: "var(--ink)",
+                                      fontSize: "11px",
+                                    }}
+                                  >
+                                    <option value="">Exhibition: Unassigned / General Archive</option>
+                                    {myOwnExhibitions.map((ex) => (
+                                      <option key={ex.id} value={ex.id}>
+                                        Exhibition: {ex.title}
+                                      </option>
+                                    ))}
+                                  </select>
                                   <div style={{ display: "flex", gap: "8px" }}>
                                     <button type="submit" className="studio-button" style={{ padding: "5px 10px" }}>
                                       SAVE
