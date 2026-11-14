@@ -49,7 +49,32 @@ type ActivityDay = {
   thumbnail: string;
 };
 
-// 高清展覽級圖片優化（長邊上限 2400px、0.92 高畫質，保留細節同時加快載入）
+type ConfirmDialogState = {
+  eyebrow: string;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
+};
+
+const FALLBACK_GALLERY_IMAGE =
+  "https://images.unsplash.com/photo-1693814610769-66238d08422a?auto=format&fit=crop&w=1800&q=88";
+
+function getSafeImageSrc(src?: string | null): string {
+  if (!src || typeof src !== "string") return FALLBACK_GALLERY_IMAGE;
+  const trimmed = src.trim();
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return trimmed;
+  }
+  return FALLBACK_GALLERY_IMAGE;
+}
+
+// High-definition archival image optimizer (2400px max dimension, 0.92 JPEG quality)
 async function compressImageForGallery(file: File, maxDimension = 2400, quality = 0.92): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -239,15 +264,13 @@ function buildActivity(
       const foundExIdx = artistExhibitions.findIndex((e) => e.id === p.exhibition_id);
       uploadMap.set(p.shootDateKey, {
         count: (prev?.count || 0) + 1,
-        thumb: p.src,
+        thumb: getSafeImageSrc(p.src),
         exIdx: foundExIdx >= 0 ? foundExIdx : 0,
       });
     }
   });
 
-  const fallbackThumb =
-    artistPhotos[0]?.src ||
-    "https://images.unsplash.com/photo-1533057917386-1c1477353a3c?auto=format&fit=crop&w=800&q=80";
+  const fallbackThumb = getSafeImageSrc(artistPhotos[0]?.src);
 
   return Array.from({ length: 53 * 7 }, (_, index) => {
     const date = new Date(start);
@@ -311,7 +334,16 @@ function PhotoButton({
         transition={{ duration: 0.7, ease }}
         aria-label={`Open ${photo.title} in lightbox`}
       >
-        <img src={photo.src} alt={photo.alt} loading="lazy" />
+        <img
+          src={getSafeImageSrc(photo.src)}
+          alt={photo.alt}
+          loading="lazy"
+          onError={(e) => {
+            if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+              e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+            }
+          }}
+        />
         <span className="view-cue">VIEW</span>
       </motion.button>
       <Placard photo={photo} number={number} />
@@ -388,7 +420,15 @@ function ActivityHeatmap({
               >
                 {day.count > 0 && (
                   <span className={`activity-tooltip ${index > 335 ? "tooltip-left" : ""}`}>
-                    <img src={day.thumbnail} alt="" />
+                    <img
+                      src={day.thumbnail}
+                      alt=""
+                      onError={(e) => {
+                        if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                          e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                        }
+                      }}
+                    />
                     <span>
                       <strong>{day.dateLabel}</strong>
                       {day.count} PHOTOGRAPHS
@@ -411,7 +451,7 @@ function ActivityHeatmap({
   );
 }
 
-/* ==================== 藝廊探索大廳（首頁） ==================== */
+/* ==================== Gallery Directory (Home) ==================== */
 function DiscoverView({
   artists,
   allPhotos,
@@ -503,12 +543,7 @@ function DiscoverView({
         <div className="exhibition-list">
           {filteredArtists.map((artist, index) => {
             const artistWorks = allPhotos.filter((p) => p.user_id === artist.id);
-            const cover =
-              artistWorks.find((p) => p.isCover) ||
-              artistWorks[0] || {
-                src: "https://images.unsplash.com/photo-1693814610769-66238d08422a?auto=format&fit=crop&w=1800&q=88",
-                alt: artist.display_name,
-              };
+            const coverPhoto = artistWorks.find((p) => p.isCover) || artistWorks[0];
 
             return (
               <article className="exhibition-row" key={artist.id}>
@@ -517,7 +552,15 @@ function DiscoverView({
                   aria-label={`Enter ${artist.display_name}'s gallery`}
                 >
                   <div className="exhibition-cover">
-                    <img src={cover.src} alt={artist.display_name} />
+                    <img
+                      src={getSafeImageSrc(coverPhoto?.src)}
+                      alt={artist.display_name}
+                      onError={(e) => {
+                        if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                          e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                        }
+                      }}
+                    />
                     <span>
                       ENTER GALLERY ({artistWorks.length} {artistWorks.length === 1 ? "WORK" : "WORKS"}) ↗
                     </span>
@@ -547,7 +590,7 @@ function DiscoverView({
   );
 }
 
-/* ==================== 藝術家個人畫廊（保留原本大氣留白與標題比例） ==================== */
+/* ==================== Individual Artist Gallery ==================== */
 function ArtistGalleryProfileView({
   artist,
   artistPhotos,
@@ -833,13 +876,7 @@ function ArtistGalleryProfileView({
                   ? [...exPhotos, ...artistPhotos.filter((p) => !p.exhibition_id)]
                   : exPhotos;
 
-              const cover =
-                mergedPhotos.find((p) => p.isCover) ||
-                mergedPhotos[0] || {
-                  src: "https://images.unsplash.com/photo-1693814610769-66238d08422a?auto=format&fit=crop&w=1800&q=88",
-                  alt: ex.title,
-                };
-
+              const cover = mergedPhotos.find((p) => p.isCover) || mergedPhotos[0];
               const highlighted = selectedDay?.exhibitionIndex === idx;
 
               return (
@@ -852,7 +889,15 @@ function ArtistGalleryProfileView({
                     aria-label={`Open ${ex.title} exhibition`}
                   >
                     <div className="exhibition-cover">
-                      <img src={cover.src} alt={ex.title} />
+                      <img
+                        src={getSafeImageSrc(cover?.src)}
+                        alt={ex.title}
+                        onError={(e) => {
+                          if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                            e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                          }
+                        }}
+                      />
                       <span>
                         VIEW EXHIBITION ({mergedPhotos.length}{" "}
                         {mergedPhotos.length === 1 ? "FRAME" : "FRAMES"}) ↗
@@ -903,7 +948,7 @@ function ArtistGalleryProfileView({
   );
 }
 
-/* ==================== 展覽內部排版 ==================== */
+/* ==================== Exhibition Layouts ==================== */
 function EditorialGallery({ photos }: { photos: Photograph[] }) {
   if (photos.length === 0) {
     return (
@@ -980,7 +1025,16 @@ function ContactSheet({ photos, artistName }: { photos: Photograph[]; artistName
                 }
                 aria-label={`Open frame ${index + 1}, ${photo.title}`}
               >
-                <img src={photo.src} alt={photo.alt} loading="lazy" />
+                <img
+                  src={getSafeImageSrc(photo.src)}
+                  alt={photo.alt}
+                  loading="lazy"
+                  onError={(e) => {
+                    if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                      e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                    }
+                  }}
+                />
                 <span>{String(index + 1).padStart(2, "0")}A</span>
                 {selected && <i aria-label="Curated selection">SELECT</i>}
               </button>
@@ -1098,7 +1152,7 @@ function ExhibitionView({
             exhibitionTitle={exhibition.title}
             exhibitionSubtitle={`— ${artist.display_name}`}
             dateRange={`${exhibition.location} · ${exhibition.period}`}
-            coverImageSrc={coverPhoto.src}
+            coverImageSrc={getSafeImageSrc(coverPhoto.src)}
             coverPhotoTitle={coverPhoto.title}
             coverPhotoSpecs={coverPhoto.specs}
           />
@@ -1172,6 +1226,11 @@ export default function App() {
   const [uploadStatusText, setUploadStatusText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Elegant gallery confirmation modal & status notice states
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [studioNotice, setStudioNotice] = useState<string | null>(null);
+
   const [targetExhibitionId, setTargetExhibitionId] = useState<string>("");
   const [newExTitle, setNewExTitle] = useState("");
   const [newExLocation, setNewExLocation] = useState("TAIPEI, TW");
@@ -1183,6 +1242,13 @@ export default function App() {
   const [editPhotoTitle, setEditPhotoTitle] = useState("");
   const [editPhotoSpecs, setEditPhotoSpecs] = useState("");
   const [editPhotoExId, setEditPhotoExId] = useState<string>("");
+
+  const showNotice = (msg: string) => {
+    setStudioNotice(msg);
+    setTimeout(() => {
+      setStudioNotice((prev) => (prev === msg ? null : prev));
+    }, 4500);
+  };
 
   const syncUrl = (
     nextView: "discover" | "artist" | "exhibition",
@@ -1334,9 +1400,9 @@ export default function App() {
           id: item.id,
           user_id: item.user_id,
           exhibition_id: item.exhibition_id,
-          src: item.src,
-          alt: item.alt || item.title,
-          title: item.title,
+          src: item.src || "",
+          alt: item.alt || item.title || "Untitled Study",
+          title: item.title || "Untitled Study",
           year: item.year || "2026",
           specs: item.specs || "DIGITAL ARCHIVE",
           credit: item.credit || "ARTIST ARCHIVE",
@@ -1463,20 +1529,40 @@ export default function App() {
       setNewExTitle("");
       setNewExDesc("");
       await fetchAllCloudData();
+      showNotice(`EXHIBITION "${data.title.toUpperCase()}" CREATED.`);
+    } else if (error) {
+      showNotice(`UNABLE TO CREATE EXHIBITION: ${error.message}`);
     }
     setCreatingEx(false);
   };
 
-  const handleDeleteExhibition = async (exId: string) => {
+  const requestDeleteExhibition = (ex: Exhibition) => {
     if (!user) return;
-    if (!window.confirm("確定要刪除此展覽嗎？（展覽內的照片會自動保留在你的作品庫中）")) return;
+    setConfirmDialog({
+      eyebrow: "EXHIBITION ARCHIVE",
+      title: `Remove "${ex.title}"?`,
+      message:
+        "This exhibition room will be removed. All photographs inside will remain safely in your archive.",
+      confirmLabel: "REMOVE EXHIBITION",
+      onConfirm: async () => {
+        await supabase.from("photographs").update({ exhibition_id: null }).eq("exhibition_id", ex.id);
+        const { error } = await supabase
+          .from("exhibitions")
+          .delete()
+          .eq("id", ex.id)
+          .eq("user_id", user.id);
 
-    await supabase.from("photographs").update({ exhibition_id: null }).eq("exhibition_id", exId);
-    await supabase.from("exhibitions").delete().eq("id", exId).eq("user_id", user.id);
-    if (targetExhibitionId === exId) {
-      setTargetExhibitionId("");
-    }
-    await fetchAllCloudData();
+        if (error) {
+          showNotice(`DELETE FAILED: ${error.message}`);
+          return;
+        }
+        if (targetExhibitionId === ex.id) {
+          setTargetExhibitionId("");
+        }
+        await fetchAllCloudData();
+        showNotice(`EXHIBITION "${ex.title.toUpperCase()}" REMOVED.`);
+      },
+    });
   };
 
   const startEditPhoto = (photo: Photograph) => {
@@ -1491,7 +1577,7 @@ export default function App() {
     e.preventDefault();
     if (!user || !editingPhotoId) return;
 
-    await supabase
+    const { error } = await supabase
       .from("photographs")
       .update({
         title: editPhotoTitle.trim() || "Untitled Study",
@@ -1501,8 +1587,14 @@ export default function App() {
       .eq("id", editingPhotoId)
       .eq("user_id", user.id);
 
+    if (error) {
+      showNotice(`UPDATE FAILED: ${error.message}`);
+      return;
+    }
+
     setEditingPhotoId(null);
     await fetchAllCloudData();
+    showNotice("PHOTOGRAPH DETAILS UPDATED.");
   };
 
   const handleSetPhotoCover = async (photoId?: string) => {
@@ -1514,26 +1606,47 @@ export default function App() {
       .eq("id", photoId)
       .eq("user_id", user.id);
     await fetchAllCloudData();
+    showNotice("GALLERY COVER UPDATED.");
   };
 
-  const handleDeletePhoto = async (photo: Photograph) => {
+  const requestDeletePhoto = (photo: Photograph) => {
     if (!user || !photo.id) return;
-    if (!window.confirm(`確定要永久刪除作品「${photo.title}」嗎？`)) return;
+    setConfirmDialog({
+      eyebrow: "PERMANENT REMOVAL",
+      title: `Delete "${photo.title}"?`,
+      message:
+        "This photograph and its archival cloud file will be permanently removed from your gallery.",
+      confirmLabel: "DELETE PHOTOGRAPH",
+      onConfirm: async () => {
+        if (typeof photo.src === "string" && photo.src.includes("/portfolio-photos/")) {
+          const storageMarker = "/portfolio-photos/";
+          const idx = photo.src.indexOf(storageMarker);
+          if (idx !== -1) {
+            const storagePath = decodeURIComponent(photo.src.slice(idx + storageMarker.length));
+            await supabase.storage.from("portfolio-photos").remove([storagePath]);
+          }
+        }
 
-    const storageMarker = "/portfolio-photos/";
-    const idx = photo.src.indexOf(storageMarker);
-    if (idx !== -1) {
-      const storagePath = decodeURIComponent(photo.src.slice(idx + storageMarker.length));
-      await supabase.storage.from("portfolio-photos").remove([storagePath]);
-    }
+        const { error } = await supabase
+          .from("photographs")
+          .delete()
+          .eq("id", photo.id)
+          .eq("user_id", user.id);
 
-    await supabase.from("photographs").delete().eq("id", photo.id).eq("user_id", user.id);
-    await fetchAllCloudData();
+        if (error) {
+          showNotice(`DELETE FAILED: ${error.message}`);
+          return;
+        }
+
+        await fetchAllCloudData();
+        showNotice(`"${photo.title.toUpperCase()}" REMOVED FROM ARCHIVE.`);
+      },
+    });
   };
 
   const handleUploadFiles = async (fileList: FileList | File[]) => {
     if (!user) {
-      alert("請先點擊右上角 SIGN IN 登入你的藝術家帳號再上傳作品！");
+      showNotice("PLEASE SIGN IN TO PUBLISH PHOTOGRAPHS TO YOUR GALLERY.");
       return;
     }
 
@@ -1542,6 +1655,8 @@ export default function App() {
 
     setIsUploading(true);
     setUploadStatusText("READING EXIF & OPTIMIZING...");
+    let uploadedCount = 0;
+
     try {
       const parsedList = await parsePhotographs(filesArray);
       const myProfile = cloudProfiles.find((p) => p.id === user.id);
@@ -1554,7 +1669,8 @@ export default function App() {
         setUploadStatusText(`OPTIMIZING & UPLOADING ${i + 1} / ${filesArray.length}...`);
 
         const optimizedBlob = await compressImageForGallery(file, 2400, 0.92);
-        const fileExt = optimizedBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
+        const fileExt =
+          optimizedBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
         const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
         const { error: uploadErr } = await supabase.storage
@@ -1564,7 +1680,7 @@ export default function App() {
           });
 
         if (uploadErr) {
-          console.error("Storage upload error:", uploadErr);
+          showNotice(`STORAGE UPLOAD ERROR: ${uploadErr.message}`);
           continue;
         }
 
@@ -1572,7 +1688,7 @@ export default function App() {
           data: { publicUrl },
         } = supabase.storage.from("portfolio-photos").getPublicUrl(fileName);
 
-        await supabase.from("photographs").insert({
+        const { error: dbErr } = await supabase.from("photographs").insert({
           user_id: user.id,
           exhibition_id: chosenExId,
           src: publicUrl,
@@ -1584,13 +1700,23 @@ export default function App() {
           shoot_date_key: meta.shootDateKey,
           is_cover: myOwnPhotos.length === 0 && i === 0,
         });
+
+        if (dbErr) {
+          showNotice(`DATABASE ERROR: ${dbErr.message}`);
+          continue;
+        }
+
+        uploadedCount++;
       }
 
       await fetchAllCloudData();
-      setSelectedArtistId(user.id);
-      setView("artist");
-      syncUrl("artist", user.id);
-      setStudioOpen(false);
+      if (uploadedCount > 0) {
+        setSelectedArtistId(user.id);
+        setView("artist");
+        syncUrl("artist", user.id);
+        setStudioOpen(false);
+        showNotice(`PUBLISHED ${uploadedCount} PHOTOGRAPH${uploadedCount > 1 ? "S" : ""}.`);
+      }
     } finally {
       setIsUploading(false);
       setUploadStatusText("");
@@ -1615,12 +1741,17 @@ export default function App() {
         return;
       }
 
+      if (confirmDialog && event.key === "Escape" && !confirmBusy) {
+        setConfirmDialog(null);
+        return;
+      }
+
       if (searchOpen && event.key === "Escape") {
         setSearchOpen(false);
         return;
       }
 
-      if (studioOpen && event.key === "Escape") {
+      if (studioOpen && event.key === "Escape" && !confirmDialog) {
         setStudioOpen(false);
         return;
       }
@@ -1638,7 +1769,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activePhoto, exhibitionPhotos.length, studioOpen, searchOpen]);
+  }, [activePhoto, exhibitionPhotos.length, studioOpen, searchOpen, confirmDialog, confirmBusy]);
 
   const currentLightboxPhoto = activePhoto === null ? null : exhibitionPhotos[activePhoto];
 
@@ -1692,6 +1823,43 @@ export default function App() {
         }}
       />
 
+      {/* Gallery Notification Toast */}
+      <AnimatePresence>
+        {studioNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.3, ease }}
+            style={{
+              position: "fixed",
+              bottom: "24px",
+              left: "24px",
+              zIndex: 120,
+              background: "var(--ink)",
+              color: "var(--paper)",
+              padding: "12px 18px",
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: "9px",
+              letterSpacing: "0.14em",
+              display: "flex",
+              alignItems: "center",
+              gap: "14px",
+            }}
+          >
+            <span>{studioNotice}</span>
+            <button
+              onClick={() => setStudioNotice(null)}
+              style={{ cursor: "pointer", opacity: 0.7 }}
+              aria-label="Dismiss notice"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Drag & Drop Archival Overlay */}
       <AnimatePresence>
         {isDragging && (
           <motion.div
@@ -1710,7 +1878,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* 原本的頂部導覽列結構：topbar + wordmark + top-actions */}
+      {/* Top Navigation Bar */}
       <header className="topbar">
         <button
           className="wordmark"
@@ -1849,7 +2017,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* ==================== 全站搜尋（CMD+K） ==================== */}
+      {/* ==================== Global Archive Search (CMD+K) ==================== */}
       <AnimatePresence>
         {searchOpen && (
           <motion.div
@@ -1953,9 +2121,14 @@ export default function App() {
                           }}
                         >
                           <img
-                            src={p.src}
+                            src={getSafeImageSrc(p.src)}
                             alt={p.title}
                             style={{ width: "48px", height: "48px", objectFit: "cover" }}
+                            onError={(e) => {
+                              if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                                e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                              }
+                            }}
                           />
                           <div>
                             <strong>{p.title}</strong>
@@ -1974,7 +2147,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* ==================== 藝術家個人暗房工作台（STUDIO） ==================== */}
+      {/* ==================== Curator Darkroom Workbench (STUDIO) ==================== */}
       <AnimatePresence>
         {studioOpen && user && (
           <motion.div
@@ -2106,7 +2279,15 @@ export default function App() {
                               style={{ flexDirection: "column", alignItems: "stretch", gap: "10px" }}
                             >
                               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                                <img src={photo.src} alt={photo.alt} />
+                                <img
+                                  src={getSafeImageSrc(photo.src)}
+                                  alt={photo.alt}
+                                  onError={(e) => {
+                                    if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                                      e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                                    }
+                                  }}
+                                />
                                 <div style={{ flex: 1 }}>
                                   <p className="studio-item-title">
                                     {photo.title}{" "}
@@ -2214,7 +2395,7 @@ export default function App() {
                                     </>
                                   )}
                                   <button
-                                    onClick={() => handleDeletePhoto(photo)}
+                                    onClick={() => requestDeletePhoto(photo)}
                                     style={{ cursor: "pointer", color: "#bd372d" }}
                                   >
                                     DELETE
@@ -2319,7 +2500,7 @@ export default function App() {
                             </div>
                             {myOwnExhibitions.length > 1 && (
                               <button
-                                onClick={() => handleDeleteExhibition(ex.id)}
+                                onClick={() => requestDeleteExhibition(ex)}
                                 style={{
                                   fontSize: "9px",
                                   letterSpacing: "0.12em",
@@ -2342,7 +2523,121 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* ==================== 全螢幕燈箱檢視 ==================== */}
+      {/* ==================== Minimalist Editorial Confirmation Dialog ==================== */}
+      <AnimatePresence>
+        {confirmDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            onClick={() => !confirmBusy && setConfirmDialog(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 130,
+              background: "rgba(0, 0, 0, 0.55)",
+              backdropFilter: "blur(3px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "24px",
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+              transition={{ duration: 0.3, ease }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "min(420px, 100%)",
+                background: "var(--paper)",
+                color: "var(--ink)",
+                border: "1px solid var(--line)",
+                padding: "32px 28px",
+              }}
+            >
+              <p className="eyebrow" style={{ color: "#bd372d" }}>
+                {confirmDialog.eyebrow}
+              </p>
+              <h3
+                id="confirm-dialog-title"
+                style={{
+                  marginTop: "12px",
+                  fontFamily: '"Cormorant Garamond", serif',
+                  fontSize: "30px",
+                  fontWeight: 400,
+                  lineHeight: 1.12,
+                }}
+              >
+                {confirmDialog.title}
+              </h3>
+              <p
+                style={{
+                  marginTop: "14px",
+                  color: "var(--muted)",
+                  fontSize: "12px",
+                  lineHeight: 1.65,
+                }}
+              >
+                {confirmDialog.message}
+              </p>
+              <div
+                style={{
+                  marginTop: "28px",
+                  paddingTop: "18px",
+                  borderTop: "1px solid var(--line)",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "14px",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={confirmBusy}
+                  onClick={() => setConfirmDialog(null)}
+                  className="text-button"
+                  style={{ padding: "9px 14px", opacity: confirmBusy ? 0.5 : 1 }}
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmBusy}
+                  onClick={async () => {
+                    setConfirmBusy(true);
+                    try {
+                      await confirmDialog.onConfirm();
+                    } finally {
+                      setConfirmBusy(false);
+                      setConfirmDialog(null);
+                    }
+                  }}
+                  style={{
+                    padding: "9px 16px",
+                    border: "1px solid #bd372d",
+                    background: "#bd372d",
+                    color: "#ffffff",
+                    fontFamily: '"Inter", sans-serif',
+                    fontSize: "10px",
+                    fontWeight: 500,
+                    letterSpacing: "0.13em",
+                    cursor: confirmBusy ? "wait" : "pointer",
+                  }}
+                >
+                  {confirmBusy ? "REMOVING..." : confirmDialog.confirmLabel}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== Fullscreen Lightbox ==================== */}
       <AnimatePresence>
         {currentLightboxPhoto && activePhoto !== null && (
           <motion.div
@@ -2384,11 +2679,16 @@ export default function App() {
 
               <motion.img
                 key={currentLightboxPhoto.src}
-                src={currentLightboxPhoto.src}
+                src={getSafeImageSrc(currentLightboxPhoto.src)}
                 alt={currentLightboxPhoto.alt}
                 initial={{ opacity: 0, scale: 0.985 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.45, ease }}
+                onError={(e) => {
+                  if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                    e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                  }
+                }}
               />
 
               <button
