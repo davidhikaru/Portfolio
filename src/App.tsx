@@ -531,6 +531,12 @@ function DiscoverView({
   const [selectedArtistFilter, setSelectedArtistFilter] = useState<string>("all");
   const [directoryFilter, setDirectoryFilter] = useState<"all" | "commissions">("all");
 
+  const activeArtists = useMemo(() => {
+    return artists.filter((artist) =>
+      allPhotos.some((photo) => photo.user_id === artist.id),
+    );
+  }, [artists, allPhotos]);
+
   const streamPhotos = useMemo(() => {
     if (selectedArtistFilter === "all") return allPhotos;
     return allPhotos.filter((p) => p.user_id === selectedArtistFilter);
@@ -538,10 +544,10 @@ function DiscoverView({
 
   const filteredArtists = useMemo(() => {
     if (directoryFilter === "commissions") {
-      return artists.filter((a) => a.available_for_commissions);
+      return activeArtists.filter((a) => a.available_for_commissions);
     }
-    return artists;
-  }, [artists, directoryFilter]);
+    return activeArtists;
+  }, [activeArtists, directoryFilter]);
 
   return (
     <motion.div
@@ -572,7 +578,7 @@ function DiscoverView({
                 className={homeMode === "directory" ? "active" : ""}
                 onClick={() => setHomeMode("directory")}
               >
-                RESIDENT ARTISTS ({artists.length})
+                RESIDENT ARTISTS ({activeArtists.length})
               </button>
             </div>
 
@@ -582,7 +588,7 @@ function DiscoverView({
           </div>
         </div>
 
-        {/* Minimalist Avatar-Free Resident Strip (IG Stories-inspired horizontal index) */}
+        {/* Minimalist Avatar-Free Resident Strip (Only artists with published works) */}
         <div className="resident-strip" aria-label="Filter stream by photographer">
           <button
             className={`resident-pill ${selectedArtistFilter === "all" ? "active" : ""}`}
@@ -595,7 +601,7 @@ function DiscoverView({
             ALL PHOTOGRAPHERS ({allPhotos.length})
           </button>
 
-          {artists.map((artist) => {
+          {activeArtists.map((artist) => {
             const count = allPhotos.filter((p) => p.user_id === artist.id).length;
             const isSelected = selectedArtistFilter === artist.id && homeMode === "stream";
             return (
@@ -730,7 +736,7 @@ function DiscoverView({
                   cursor: "pointer",
                 }}
               >
-                ALL ARTISTS ({artists.length})
+                ALL ARTISTS ({activeArtists.length})
               </button>
               <span>/</span>
               <button
