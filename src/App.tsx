@@ -10,6 +10,8 @@ type ArtistProfile = {
   location: string;
   bio: string;
   specialty: string;
+  instagram_handle?: string;
+  contact_email?: string;
   avatar_url?: string | null;
   available_for_commissions: boolean;
   isFeaturedDemo?: boolean;
@@ -30,13 +32,16 @@ type Photograph = {
   user_id?: string;
   exhibition_id?: string | null;
   src: string;
+  thumbSrc?: string;
   alt: string;
   title: string;
   year: string;
   specs: string;
   credit: string;
+  storyNote?: string;
   shootDateKey?: string;
   isCover?: boolean;
+  createdAt?: string;
 };
 
 type ActivityDay = {
@@ -74,59 +79,77 @@ function getSafeImageSrc(src?: string | null): string {
   return FALLBACK_GALLERY_IMAGE;
 }
 
-// High-definition archival image optimizer (2400px max dimension, 0.92 JPEG quality)
-async function compressImageForGallery(file: File, maxDimension = 2400, quality = 0.92): Promise<Blob> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+// Dual-resolution archival image optimizer: generates both 2400px full HD and 800px fast thumbnail
+async function generateDualSizeBlobs(
+  file: File,
+): Promise<{ fullBlob: Blob; thumbBlob: Blob }> {
+  const resizeToBlob = (maxDimension: number, quality: number, skipIfSmall: boolean): Promise<Blob> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
 
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      let { width, height } = img;
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
 
-      if (width <= maxDimension && height <= maxDimension && file.size <= 1.8 * 1024 * 1024) {
+        if (skipIfSmall && width <= maxDimension && height <= maxDimension && file.size <= 1.8 * 1024 * 1024) {
+          resolve(file);
+          return;
+        }
+
+        if (width > height && width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height >= width && height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            resolve(blob || file);
+          },
+          "image/jpeg",
+          quality,
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
         resolve(file);
-        return;
-      }
+      };
 
-      if (width > height && width > maxDimension) {
-        height = Math.round((height * maxDimension) / width);
-        width = maxDimension;
-      } else if (height >= width && height > maxDimension) {
-        width = Math.round((width * maxDimension) / height);
-        height = maxDimension;
-      }
+      img.src = objectUrl;
+    });
 
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
+  const [fullBlob, thumbBlob] = await Promise.all([
+    resizeToBlob(2400, 0.92, true),
+    resizeToBlob(800, 0.82, false),
+  ]);
 
-      if (!ctx) {
-        resolve(file);
-        return;
-      }
+  return { fullBlob, thumbBlob };
+}
 
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, width, height);
-
-      canvas.toBlob(
-        (blob) => {
-          resolve(blob || file);
-        },
-        "image/jpeg",
-        quality,
-      );
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(file);
-    };
-
-    img.src = objectUrl;
-  });
+function extractStoragePathFromUrl(url?: string | null): string | null {
+  if (!url || typeof url !== "string" || !url.includes("/portfolio-photos/")) return null;
+  const marker = "/portfolio-photos/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + marker.length));
 }
 
 const MARA_VENN_PROFILE: ArtistProfile = {
@@ -165,11 +188,13 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1533057917386-1c1477353a3c?auto=format&fit=crop&w=2200&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1533057917386-1c1477353a3c?auto=format&fit=crop&w=900&q=82",
     alt: "A solitary person standing at the edge of a pale, misty sea",
     title: "The Measure of Distance",
     year: "2024",
     specs: "LEICA M6 · 35MM F/1.4 · PORTRA 400",
     credit: "MARA VENN",
+    storyNote: "Shot ten minutes before fog closed the harbor wall along the southern coast.",
     isCover: true,
   },
   {
@@ -177,6 +202,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1767854507654-5852c55b8d2f?auto=format&fit=crop&w=1400&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1767854507654-5852c55b8d2f?auto=format&fit=crop&w=900&q=82",
     alt: "Geometric concrete architecture and stairs in hard afternoon light",
     title: "Passage I",
     year: "2023",
@@ -188,6 +214,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1767307804826-f7a0d2c9f622?auto=format&fit=crop&w=1400&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1767307804826-f7a0d2c9f622?auto=format&fit=crop&w=900&q=82",
     alt: "Tree shadows falling across a white wall with an arched window",
     title: "Passage II",
     year: "2023",
@@ -199,6 +226,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1507408167442-88d2ef62e386?auto=format&fit=crop&w=2200&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1507408167442-88d2ef62e386?auto=format&fit=crop&w=900&q=82",
     alt: "A small figure standing on a ridge above a field of fog",
     title: "Weather Study, No. 6",
     year: "2024",
@@ -210,6 +238,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1777792405713-e0a895c8457c?auto=format&fit=crop&w=1400&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1777792405713-e0a895c8457c?auto=format&fit=crop&w=900&q=82",
     alt: "A dark narrow hallway ending in a single illuminated window",
     title: "Darkroom Window",
     year: "2022",
@@ -221,6 +250,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-1",
     src: "https://images.unsplash.com/photo-1693814610769-66238d08422a?auto=format&fit=crop&w=1800&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1693814610769-66238d08422a?auto=format&fit=crop&w=900&q=82",
     alt: "A quiet monochrome gallery room with a bench and framed artwork",
     title: "After the Visitors",
     year: "2024",
@@ -232,6 +262,7 @@ const maraVennPhotographs: Photograph[] = [
     user_id: "featured-mara-venn",
     exhibition_id: "mv-ex-2",
     src: "https://images.unsplash.com/photo-1722131073730-0b2bd13c9bff?auto=format&fit=crop&w=1800&q=88",
+    thumbSrc: "https://images.unsplash.com/photo-1722131073730-0b2bd13c9bff?auto=format&fit=crop&w=900&q=82",
     alt: "A person in a suit waiting alone for a train",
     title: "Platform 04, Shinjuku",
     year: "2023",
@@ -264,13 +295,13 @@ function buildActivity(
       const foundExIdx = artistExhibitions.findIndex((e) => e.id === p.exhibition_id);
       uploadMap.set(p.shootDateKey, {
         count: (prev?.count || 0) + 1,
-        thumb: getSafeImageSrc(p.src),
+        thumb: getSafeImageSrc(p.thumbSrc || p.src),
         exIdx: foundExIdx >= 0 ? foundExIdx : 0,
       });
     }
   });
 
-  const fallbackThumb = getSafeImageSrc(artistPhotos[0]?.src);
+  const fallbackThumb = getSafeImageSrc(artistPhotos[0]?.thumbSrc || artistPhotos[0]?.src);
 
   return Array.from({ length: 53 * 7 }, (_, index) => {
     const date = new Date(start);
@@ -553,7 +584,7 @@ function DiscoverView({
                 >
                   <div className="exhibition-cover">
                     <img
-                      src={getSafeImageSrc(coverPhoto?.src)}
+                      src={getSafeImageSrc(coverPhoto?.thumbSrc || coverPhoto?.src)}
                       alt={artist.display_name}
                       onError={(e) => {
                         if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
@@ -890,7 +921,7 @@ function ArtistGalleryProfileView({
                   >
                     <div className="exhibition-cover">
                       <img
-                        src={getSafeImageSrc(cover?.src)}
+                        src={getSafeImageSrc(cover?.thumbSrc || cover?.src)}
                         alt={ex.title}
                         onError={(e) => {
                           if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
@@ -1026,7 +1057,7 @@ function ContactSheet({ photos, artistName }: { photos: Photograph[]; artistName
                 aria-label={`Open frame ${index + 1}, ${photo.title}`}
               >
                 <img
-                  src={getSafeImageSrc(photo.src)}
+                  src={getSafeImageSrc(photo.thumbSrc || photo.src)}
                   alt={photo.alt}
                   loading="lazy"
                   onError={(e) => {
@@ -1226,12 +1257,10 @@ export default function App() {
   const [uploadStatusText, setUploadStatusText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Elegant gallery confirmation modal & status notice states
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [studioNotice, setStudioNotice] = useState<string | null>(null);
 
-  // Empty string "" represents unassigned / general archive (stored as null in database)
   const [targetExhibitionId, setTargetExhibitionId] = useState<string>("");
   const [newExTitle, setNewExTitle] = useState("");
   const [newExLocation, setNewExLocation] = useState("TAIPEI, TW");
@@ -1242,6 +1271,7 @@ export default function App() {
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [editPhotoTitle, setEditPhotoTitle] = useState("");
   const [editPhotoSpecs, setEditPhotoSpecs] = useState("");
+  const [editPhotoStoryNote, setEditPhotoStoryNote] = useState("");
   const [editPhotoExId, setEditPhotoExId] = useState<string>("");
 
   const showNotice = (msg: string) => {
@@ -1370,6 +1400,8 @@ export default function App() {
           location: p.location || "TAIPEI, TW · WORKING INTERNATIONALLY",
           bio: p.bio || "Independent visual archive and photographic studies.",
           specialty: p.specialty || "EDITORIAL · DOCUMENTARY",
+          instagram_handle: p.instagram_handle || "",
+          contact_email: p.contact_email || "",
           avatar_url: p.avatar_url,
           available_for_commissions: p.available_for_commissions ?? true,
         })),
@@ -1396,13 +1428,16 @@ export default function App() {
           user_id: item.user_id,
           exhibition_id: item.exhibition_id,
           src: item.src || "",
+          thumbSrc: item.thumb_src || item.src || "",
           alt: item.alt || item.title || "Untitled Study",
           title: item.title || "Untitled Study",
           year: item.year || "2026",
           specs: item.specs || "DIGITAL ARCHIVE",
           credit: item.credit || "ARTIST ARCHIVE",
+          storyNote: item.story_note || "",
           shootDateKey: item.shoot_date_key,
           isCover: item.is_cover ?? false,
+          createdAt: item.created_at,
         })),
       );
     }
@@ -1565,6 +1600,7 @@ export default function App() {
     setEditingPhotoId(photo.id);
     setEditPhotoTitle(photo.title);
     setEditPhotoSpecs(photo.specs);
+    setEditPhotoStoryNote(photo.storyNote || "");
     setEditPhotoExId(photo.exhibition_id || "");
   };
 
@@ -1577,6 +1613,7 @@ export default function App() {
       .update({
         title: editPhotoTitle.trim() || "Untitled Study",
         specs: editPhotoSpecs.trim() || "DIGITAL ARCHIVE",
+        story_note: editPhotoStoryNote.trim() || null,
         exhibition_id: editPhotoExId || null,
       })
       .eq("id", editingPhotoId)
@@ -1610,16 +1647,16 @@ export default function App() {
       eyebrow: "PERMANENT REMOVAL",
       title: `Delete "${photo.title}"?`,
       message:
-        "This photograph and its archival cloud file will be permanently removed from your gallery.",
+        "This photograph and its archival cloud files will be permanently removed from your gallery.",
       confirmLabel: "DELETE PHOTOGRAPH",
       onConfirm: async () => {
-        if (typeof photo.src === "string" && photo.src.includes("/portfolio-photos/")) {
-          const storageMarker = "/portfolio-photos/";
-          const idx = photo.src.indexOf(storageMarker);
-          if (idx !== -1) {
-            const storagePath = decodeURIComponent(photo.src.slice(idx + storageMarker.length));
-            await supabase.storage.from("portfolio-photos").remove([storagePath]);
-          }
+        const pathsToRemove = [
+          extractStoragePathFromUrl(photo.src),
+          extractStoragePathFromUrl(photo.thumbSrc),
+        ].filter((p): p is string => Boolean(p));
+
+        if (pathsToRemove.length > 0) {
+          await supabase.storage.from("portfolio-photos").remove(pathsToRemove);
         }
 
         const { error } = await supabase
@@ -1649,14 +1686,13 @@ export default function App() {
     if (filesArray.length === 0) return;
 
     setIsUploading(true);
-    setUploadStatusText("READING EXIF & OPTIMIZING...");
+    setUploadStatusText("READING EXIF & GENERATING DUAL SIZES...");
     let uploadedCount = 0;
 
     try {
       const parsedList = await parsePhotographs(filesArray);
       const myProfile = cloudProfiles.find((p) => p.id === user.id);
       const artistCredit = (myProfile?.display_name || "ARTIST ARCHIVE").toUpperCase();
-      // Allows null when targetExhibitionId is empty ("UNASSIGNED / GENERAL ARCHIVE")
       const chosenExId = targetExhibitionId || null;
 
       for (let i = 0; i < filesArray.length; i++) {
@@ -1664,30 +1700,40 @@ export default function App() {
         const meta = parsedList[i];
         setUploadStatusText(`OPTIMIZING & UPLOADING ${i + 1} / ${filesArray.length}...`);
 
-        const optimizedBlob = await compressImageForGallery(file, 2400, 0.92);
-        const fileExt =
-          optimizedBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
-        const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+        const { fullBlob, thumbBlob } = await generateDualSizeBlobs(file);
+        const uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const fullExt =
+          fullBlob.type === "image/jpeg" ? "jpg" : file.name.split(".").pop() || "jpg";
+        const fullPath = `${user.id}/${uid}.${fullExt}`;
+        const thumbPath = `${user.id}/${uid}_thumb.jpg`;
 
-        const { error: uploadErr } = await supabase.storage
-          .from("portfolio-photos")
-          .upload(fileName, optimizedBlob, {
-            contentType: optimizedBlob.type || "image/jpeg",
-          });
+        const [{ error: fullUploadErr }, { error: thumbUploadErr }] = await Promise.all([
+          supabase.storage.from("portfolio-photos").upload(fullPath, fullBlob, {
+            contentType: fullBlob.type || "image/jpeg",
+          }),
+          supabase.storage.from("portfolio-photos").upload(thumbPath, thumbBlob, {
+            contentType: "image/jpeg",
+          }),
+        ]);
 
-        if (uploadErr) {
-          showNotice(`STORAGE UPLOAD ERROR: ${uploadErr.message}`);
+        if (fullUploadErr) {
+          showNotice(`STORAGE UPLOAD ERROR: ${fullUploadErr.message}`);
           continue;
         }
 
         const {
-          data: { publicUrl },
-        } = supabase.storage.from("portfolio-photos").getPublicUrl(fileName);
+          data: { publicUrl: fullPublicUrl },
+        } = supabase.storage.from("portfolio-photos").getPublicUrl(fullPath);
+
+        const thumbPublicUrl = thumbUploadErr
+          ? fullPublicUrl
+          : supabase.storage.from("portfolio-photos").getPublicUrl(thumbPath).data.publicUrl;
 
         const { error: dbErr } = await supabase.from("photographs").insert({
           user_id: user.id,
           exhibition_id: chosenExId,
-          src: publicUrl,
+          src: fullPublicUrl,
+          thumb_src: thumbPublicUrl,
           alt: meta.alt,
           title: meta.title,
           year: meta.year,
@@ -1868,7 +1914,7 @@ export default function App() {
             <div className="dropzone-box">
               <p className="eyebrow">HD ARCHIVAL OPTIMIZATION & EXIF SYNC</p>
               <h2>Drop photographs to publish to your gallery</h2>
-              <p>Optimized to 2400px archival quality with camera metadata preserved.</p>
+              <p>Optimized to 2400px archival quality with fast 800px previews.</p>
             </div>
           </motion.div>
         )}
@@ -2117,7 +2163,7 @@ export default function App() {
                           }}
                         >
                           <img
-                            src={getSafeImageSrc(p.src)}
+                            src={getSafeImageSrc(p.thumbSrc || p.src)}
                             alt={p.title}
                             style={{ width: "48px", height: "48px", objectFit: "cover" }}
                             onError={(e) => {
@@ -2240,14 +2286,14 @@ export default function App() {
                       className="studio-drop-area"
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <p className="eyebrow">HD 2400PX ARCHIVAL + EXIF SYNC</p>
+                      <p className="eyebrow">HD 2400PX + 800PX THUMBNAIL · EXIF SYNC</p>
                       <p className="drop-title">
                         {isUploading
                           ? uploadStatusText || "UPLOADING..."
                           : "+ Select or Drop Photographs to Publish"}
                       </p>
                       <p className="drop-sub">
-                        Auto-optimized to 2400px high-definition JPEG before upload.
+                        Auto-generates 2400px archival master & 800px fast preview.
                       </p>
                     </div>
 
@@ -2275,7 +2321,7 @@ export default function App() {
                             >
                               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                                 <img
-                                  src={getSafeImageSrc(photo.src)}
+                                  src={getSafeImageSrc(photo.thumbSrc || photo.src)}
                                   alt={photo.alt}
                                   onError={(e) => {
                                     if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
@@ -2338,6 +2384,20 @@ export default function App() {
                                       background: "transparent",
                                       color: "inherit",
                                       fontSize: "11px",
+                                    }}
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    value={editPhotoStoryNote}
+                                    onChange={(e) => setEditPhotoStoryNote(e.target.value)}
+                                    placeholder="Curator's note / backstory (optional)..."
+                                    style={{
+                                      padding: "6px 8px",
+                                      border: "1px solid var(--line)",
+                                      background: "transparent",
+                                      color: "inherit",
+                                      fontSize: "11px",
+                                      fontFamily: "inherit",
                                     }}
                                   />
                                   <select
