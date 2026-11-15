@@ -79,11 +79,29 @@ function getSafeImageSrc(src?: string | null): string {
   return FALLBACK_GALLERY_IMAGE;
 }
 
-// Dual-resolution archival image optimizer: generates both 2400px full HD and 800px fast thumbnail
+function formatRelativeDate(isoString?: string, fallbackYear?: string): string {
+  if (!isoString) return fallbackYear || "ARCHIVE";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return fallbackYear || "ARCHIVE";
+  const diffMs = Date.now() - date.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHours < 1) return "JUST NOW";
+  if (diffHours < 24) return `${diffHours}H AGO`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}D AGO`;
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" })
+    .format(date)
+    .toUpperCase();
+}
+
 async function generateDualSizeBlobs(
   file: File,
 ): Promise<{ fullBlob: Blob; thumbBlob: Blob }> {
-  const resizeToBlob = (maxDimension: number, quality: number, skipIfSmall: boolean): Promise<Blob> =>
+  const resizeToBlob = (
+    maxDimension: number,
+    quality: number,
+    skipIfSmall: boolean,
+  ): Promise<Blob> =>
     new Promise((resolve) => {
       const img = new Image();
       const objectUrl = URL.createObjectURL(file);
@@ -92,7 +110,12 @@ async function generateDualSizeBlobs(
         URL.revokeObjectURL(objectUrl);
         let { width, height } = img;
 
-        if (skipIfSmall && width <= maxDimension && height <= maxDimension && file.size <= 1.8 * 1024 * 1024) {
+        if (
+          skipIfSmall &&
+          width <= maxDimension &&
+          height <= maxDimension &&
+          file.size <= 1.8 * 1024 * 1024
+        ) {
           resolve(file);
           return;
         }
@@ -158,6 +181,8 @@ const MARA_VENN_PROFILE: ArtistProfile = {
   location: "REYKJAVÍK, IS · WORKING INTERNATIONALLY",
   bio: "Mara Venn photographs the quiet architecture of distance—where weather, memory, and built form briefly meet.",
   specialty: "EDITORIAL · LANDSCAPE · ARCHITECTURE",
+  instagram_handle: "maravenn.archive",
+  contact_email: "studio@maravenn.example",
   available_for_commissions: true,
   isFeaturedDemo: true,
 };
@@ -482,28 +507,41 @@ function ActivityHeatmap({
   );
 }
 
-/* ==================== Gallery Directory (Home) ==================== */
+/* ==================== Curated Instagram-Style Stream + Directory (Home) ==================== */
 function DiscoverView({
   artists,
   allPhotos,
+  allExhibitions,
   onSelectArtist,
+  onOpenExhibitionDirect,
+  onOpenFeedLightbox,
   currentUserId,
   onOpenStudioOrLogin,
 }: {
   artists: ArtistProfile[];
   allPhotos: Photograph[];
+  allExhibitions: Exhibition[];
   onSelectArtist: (artistId: string) => void;
+  onOpenExhibitionDirect: (artistId: string, exhibitionId: string) => void;
+  onOpenFeedLightbox: (feedList: Photograph[], index: number) => void;
   currentUserId?: string;
   onOpenStudioOrLogin: () => void;
 }) {
-  const [filter, setFilter] = useState<"all" | "commissions">("all");
+  const [homeMode, setHomeMode] = useState<"stream" | "directory">("stream");
+  const [selectedArtistFilter, setSelectedArtistFilter] = useState<string>("all");
+  const [directoryFilter, setDirectoryFilter] = useState<"all" | "commissions">("all");
+
+  const streamPhotos = useMemo(() => {
+    if (selectedArtistFilter === "all") return allPhotos;
+    return allPhotos.filter((p) => p.user_id === selectedArtistFilter);
+  }, [allPhotos, selectedArtistFilter]);
 
   const filteredArtists = useMemo(() => {
-    if (filter === "commissions") {
+    if (directoryFilter === "commissions") {
       return artists.filter((a) => a.available_for_commissions);
     }
     return artists;
-  }, [artists, filter]);
+  }, [artists, directoryFilter]);
 
   return (
     <motion.div
@@ -513,104 +551,243 @@ function DiscoverView({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5, ease }}
     >
-      <section className="profile-hero" id="top">
-        <div className="profile-kicker">
-          <p className="eyebrow">CURATED PHOTOGRAPHY ARCHIVE</p>
-          <p>{artists.length} RESIDENT ARTISTS · EXHIBITION DIRECTORY</p>
+      {/* Compact Editorial Masthead */}
+      <section className="feed-masthead" id="top">
+        <div className="feed-masthead-top">
+          <div>
+            <p className="eyebrow">STUDIO FOLIO · DISPATCH STREAM</p>
+            <h1>Latest Frames</h1>
+          </div>
+
+          <div className="feed-masthead-actions">
+            <div className="mode-toggle" role="group" aria-label="Discover display mode">
+              <button
+                className={homeMode === "stream" ? "active" : ""}
+                onClick={() => setHomeMode("stream")}
+              >
+                LATEST STREAM ({allPhotos.length})
+              </button>
+              <span>/</span>
+              <button
+                className={homeMode === "directory" ? "active" : ""}
+                onClick={() => setHomeMode("directory")}
+              >
+                RESIDENT ARTISTS ({artists.length})
+              </button>
+            </div>
+
+            <button onClick={onOpenStudioOrLogin} className="studio-button">
+              {currentUserId ? "MY GALLERY →" : "+ OPEN GALLERY"}
+            </button>
+          </div>
         </div>
-        <div className="profile-name">
-          <motion.h1
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1.1, ease }}
+
+        {/* Minimalist Avatar-Free Resident Strip (IG Stories-inspired horizontal index) */}
+        <div className="resident-strip" aria-label="Filter stream by photographer">
+          <button
+            className={`resident-pill ${selectedArtistFilter === "all" ? "active" : ""}`}
+            onClick={() => {
+              setSelectedArtistFilter("all");
+              setHomeMode("stream");
+            }}
           >
-            Studio Folio
-          </motion.h1>
-          <button onClick={onOpenStudioOrLogin} className="availability" style={{ cursor: "pointer" }}>
-            <span />
-            {currentUserId ? "ENTER MY GALLERY →" : "OPEN YOUR ARTIST GALLERY →"}
+            <span className="pill-dot" />
+            ALL PHOTOGRAPHERS ({allPhotos.length})
           </button>
-        </div>
-        <div className="profile-statement">
-          <p>
-            An independent digital exhibition space where photographers curate bodies of work,
-            document shutter activity, and present visual studies.
-          </p>
-          <p className="profile-meta">SELECT AN ARTIST BELOW TO ENTER THEIR PRIVATE GALLERY</p>
+
+          {artists.map((artist) => {
+            const count = allPhotos.filter((p) => p.user_id === artist.id).length;
+            const isSelected = selectedArtistFilter === artist.id && homeMode === "stream";
+            return (
+              <div key={artist.id} className="resident-pill-group">
+                <button
+                  className={`resident-pill ${isSelected ? "active" : ""}`}
+                  onClick={() => {
+                    setSelectedArtistFilter(artist.id);
+                    setHomeMode("stream");
+                  }}
+                >
+                  {artist.display_name.toUpperCase()} ({count})
+                </button>
+                <button
+                  className="resident-enter-link"
+                  onClick={() => onSelectArtist(artist.id)}
+                  title={`Enter ${artist.display_name}'s full gallery`}
+                  aria-label={`Enter ${artist.display_name}'s gallery`}
+                >
+                  ↗
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      <section className="exhibitions-index" id="artists-directory">
-        <div className="section-heading index-heading">
-          <div>
-            <p className="eyebrow">ARTIST DIRECTORY</p>
-            <h2>Resident galleries.</h2>
-          </div>
-          <div style={{ display: "flex", gap: "14px", fontSize: "9px", letterSpacing: "0.14em" }}>
-            <button
-              onClick={() => setFilter("all")}
-              style={{
-                opacity: filter === "all" ? 1 : 0.45,
-                textDecoration: filter === "all" ? "underline" : "none",
-                cursor: "pointer",
-              }}
-            >
-              ALL ARTISTS ({artists.length})
-            </button>
-            <span>/</span>
-            <button
-              onClick={() => setFilter("commissions")}
-              style={{
-                opacity: filter === "commissions" ? 1 : 0.45,
-                textDecoration: filter === "commissions" ? "underline" : "none",
-                cursor: "pointer",
-              }}
-            >
-              AVAILABLE FOR COMMISSIONS
-            </button>
-          </div>
-        </div>
+      {homeMode === "stream" ? (
+        <section className="curated-feed" aria-label="Latest photography stream">
+          {streamPhotos.length === 0 ? (
+            <div className="feed-empty">
+              <p className="eyebrow">NO PHOTOGRAPHS PUBLISHED IN THIS STREAM YET.</p>
+            </div>
+          ) : (
+            streamPhotos.map((photo, index) => {
+              const author =
+                artists.find((a) => a.id === photo.user_id) || MARA_VENN_PROFILE;
+              const exhibition = allExhibitions.find((e) => e.id === photo.exhibition_id);
+              const locationLabel =
+                exhibition?.location || author.location.split("·")[0].trim();
 
-        <div className="exhibition-list">
-          {filteredArtists.map((artist, index) => {
-            const artistWorks = allPhotos.filter((p) => p.user_id === artist.id);
-            const coverPhoto = artistWorks.find((p) => p.isCover) || artistWorks[0];
+              return (
+                <article className="feed-card" key={photo.id || `${photo.src}-${index}`}>
+                  {/* Card Header: Photographer & Exhibition Context */}
+                  <div className="feed-card-header">
+                    <div className="feed-author-block">
+                      <button
+                        className="feed-author-name"
+                        onClick={() => onSelectArtist(author.id)}
+                      >
+                        {author.display_name}
+                      </button>
+                      <span className="feed-meta-line">
+                        {locationLabel}
+                        {exhibition ? (
+                          <>
+                            {" · "}
+                            <button
+                              className="feed-ex-link"
+                              onClick={() => onOpenExhibitionDirect(author.id, exhibition.id)}
+                            >
+                              {exhibition.title.toUpperCase()} ↗
+                            </button>
+                          </>
+                        ) : null}
+                      </span>
+                    </div>
 
-            return (
-              <article className="exhibition-row" key={artist.id}>
-                <button
-                  onClick={() => onSelectArtist(artist.id)}
-                  aria-label={`Enter ${artist.display_name}'s gallery`}
-                >
-                  <div className="exhibition-cover">
+                    <div className="feed-card-right">
+                      <span className="feed-timestamp">
+                        {formatRelativeDate(photo.createdAt, photo.year)}
+                      </span>
+                      <button
+                        className="feed-visit-btn"
+                        onClick={() => onSelectArtist(author.id)}
+                      >
+                        GALLERY →
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Full-Bleed Frame */}
+                  <button
+                    className="feed-photo-frame"
+                    onClick={() => onOpenFeedLightbox(streamPhotos, index)}
+                    aria-label={`Inspect ${photo.title} by ${author.display_name}`}
+                  >
                     <img
-                      src={getSafeImageSrc(coverPhoto?.thumbSrc || coverPhoto?.src)}
-                      alt={artist.display_name}
+                      src={getSafeImageSrc(photo.src)}
+                      alt={photo.alt}
+                      loading={index < 2 ? "eager" : "lazy"}
                       onError={(e) => {
                         if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
                           e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
                         }
                       }}
                     />
-                    <span>
-                      ENTER GALLERY ({artistWorks.length} {artistWorks.length === 1 ? "WORK" : "WORKS"}) ↗
-                    </span>
+                    <span className="view-cue">INSPECT FRAME</span>
+                  </button>
+
+                  {/* Card Footer: Title, Story Note & EXIF */}
+                  <div className="feed-card-footer">
+                    <div className="feed-caption-row">
+                      <p className="feed-title">
+                        <em>{photo.title}</em>, {photo.year}
+                      </p>
+                      <p className="feed-specs">{photo.specs}</p>
+                    </div>
+
+                    {photo.storyNote && (
+                      <p className="feed-story-note">&ldquo;{photo.storyNote}&rdquo;</p>
+                    )}
                   </div>
-                  <div className="exhibition-title-line">
-                    <span>{String(index + 1).padStart(2, "0")} /</span>
-                    <h3>{artist.display_name}</h3>
-                    <p>
-                      {artist.location.split("·")[0]}
-                      <br />
-                      {artist.specialty}
-                    </p>
-                  </div>
-                </button>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                </article>
+              );
+            })
+          )}
+        </section>
+      ) : (
+        <section className="exhibitions-index" id="artists-directory">
+          <div className="section-heading index-heading">
+            <div>
+              <p className="eyebrow">ARTIST DIRECTORY</p>
+              <h2>Resident galleries.</h2>
+            </div>
+            <div style={{ display: "flex", gap: "14px", fontSize: "9px", letterSpacing: "0.14em" }}>
+              <button
+                onClick={() => setDirectoryFilter("all")}
+                style={{
+                  opacity: directoryFilter === "all" ? 1 : 0.45,
+                  textDecoration: directoryFilter === "all" ? "underline" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                ALL ARTISTS ({artists.length})
+              </button>
+              <span>/</span>
+              <button
+                onClick={() => setDirectoryFilter("commissions")}
+                style={{
+                  opacity: directoryFilter === "commissions" ? 1 : 0.45,
+                  textDecoration: directoryFilter === "commissions" ? "underline" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                AVAILABLE FOR COMMISSIONS
+              </button>
+            </div>
+          </div>
+
+          <div className="exhibition-list">
+            {filteredArtists.map((artist, index) => {
+              const artistWorks = allPhotos.filter((p) => p.user_id === artist.id);
+              const coverPhoto = artistWorks.find((p) => p.isCover) || artistWorks[0];
+
+              return (
+                <article className="exhibition-row" key={artist.id}>
+                  <button
+                    onClick={() => onSelectArtist(artist.id)}
+                    aria-label={`Enter ${artist.display_name}'s gallery`}
+                  >
+                    <div className="exhibition-cover">
+                      <img
+                        src={getSafeImageSrc(coverPhoto?.thumbSrc || coverPhoto?.src)}
+                        alt={artist.display_name}
+                        onError={(e) => {
+                          if (e.currentTarget.src !== FALLBACK_GALLERY_IMAGE) {
+                            e.currentTarget.src = FALLBACK_GALLERY_IMAGE;
+                          }
+                        }}
+                      />
+                      <span>
+                        ENTER GALLERY ({artistWorks.length}{" "}
+                        {artistWorks.length === 1 ? "WORK" : "WORKS"}) ↗
+                      </span>
+                    </div>
+                    <div className="exhibition-title-line">
+                      <span>{String(index + 1).padStart(2, "0")} /</span>
+                      <h3>{artist.display_name}</h3>
+                      <p>
+                        {artist.location.split("·")[0]}
+                        <br />
+                        {artist.specialty}
+                      </p>
+                    </div>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <footer>
         <p>STUDIO FOLIO / DIGITAL GALLERY</p>
@@ -652,6 +829,8 @@ function ArtistGalleryProfileView({
   const [editLocation, setEditLocation] = useState(artist.location);
   const [editBio, setEditBio] = useState(artist.bio);
   const [editSpecialty, setEditSpecialty] = useState(artist.specialty);
+  const [editInstagram, setEditInstagram] = useState(artist.instagram_handle || "");
+  const [editEmail, setEditEmail] = useState(artist.contact_email || "");
   const [editAvailable, setEditAvailable] = useState(artist.available_for_commissions);
 
   useEffect(() => {
@@ -659,6 +838,8 @@ function ArtistGalleryProfileView({
     setEditLocation(artist.location);
     setEditBio(artist.bio);
     setEditSpecialty(artist.specialty);
+    setEditInstagram(artist.instagram_handle || "");
+    setEditEmail(artist.contact_email || "");
     setEditAvailable(artist.available_for_commissions);
     setIsEditing(false);
   }, [artist]);
@@ -682,11 +863,14 @@ function ArtistGalleryProfileView({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const cleanedIg = editInstagram.trim().replace(/^@/, "");
     await onSaveProfile({
       display_name: editName.trim() || artist.display_name,
       location: editLocation.trim() || artist.location,
       bio: editBio.trim() || artist.bio,
       specialty: editSpecialty.trim() || artist.specialty,
+      instagram_handle: cleanedIg,
+      contact_email: editEmail.trim(),
       available_for_commissions: editAvailable,
     });
     setSaving(false);
@@ -725,7 +909,7 @@ function ArtistGalleryProfileView({
         <div className="profile-kicker">
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <button onClick={onBackToDiscover} className="eyebrow" style={{ cursor: "pointer" }}>
-              ← ALL ARTISTS
+              ← DISCOVER STREAM
             </button>
             <span className="eyebrow">/</span>
             <p className="eyebrow">PHOTOGRAPHER / ARTIST</p>
@@ -742,7 +926,7 @@ function ArtistGalleryProfileView({
             {artist.display_name}
           </motion.h1>
 
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "12px" }}>
+          <div className="profile-name-right">
             <div className="availability" style={{ opacity: artist.available_for_commissions ? 1 : 0.45 }}>
               <span style={{ background: artist.available_for_commissions ? undefined : "#888" }} />
               {artist.available_for_commissions
@@ -750,7 +934,7 @@ function ArtistGalleryProfileView({
                 : "ARCHIVE / NOT TAKING COMMISSIONS"}
             </div>
 
-            <div style={{ display: "flex", gap: "10px" }}>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <button
                 onClick={handleCopyShareLink}
                 className="text-button"
@@ -851,6 +1035,39 @@ function ArtistGalleryProfileView({
                 }}
               />
             </label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
+                INSTAGRAM HANDLE (OPTIONAL)
+                <input
+                  value={editInstagram}
+                  onChange={(e) => setEditInstagram(e.target.value)}
+                  placeholder="username"
+                  style={{
+                    padding: "8px 10px",
+                    border: "1px solid var(--line)",
+                    background: "transparent",
+                    color: "inherit",
+                    fontSize: "13px",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "4px", fontSize: "10px", letterSpacing: "0.1em" }}>
+                INQUIRY EMAIL (OPTIONAL)
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="studio@example.com"
+                  style={{
+                    padding: "8px 10px",
+                    border: "1px solid var(--line)",
+                    background: "transparent",
+                    color: "inherit",
+                    fontSize: "13px",
+                  }}
+                />
+              </label>
+            </div>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "10px", cursor: "pointer" }}>
               <input
                 type="checkbox"
@@ -868,7 +1085,27 @@ function ArtistGalleryProfileView({
         ) : (
           <div className="profile-statement">
             <p>{artist.bio}</p>
-            <p className="profile-meta">{artist.specialty}</p>
+            <div className="profile-meta-group">
+              <p className="profile-meta">{artist.specialty}</p>
+              {(artist.instagram_handle || artist.contact_email) && (
+                <div className="artist-contact-links">
+                  {artist.instagram_handle && (
+                    <a
+                      href={`https://instagram.com/${artist.instagram_handle.replace(/^@/, "")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      INSTAGRAM @{artist.instagram_handle.replace(/^@/, "").toUpperCase()} ↗
+                    </a>
+                  )}
+                  {artist.contact_email && (
+                    <a href={`mailto:${artist.contact_email}`}>
+                      INQUIRIES / EMAIL ↗
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -1179,6 +1416,7 @@ function ExhibitionView({
         {coverPhoto && (
           <StoryPosterExport
             dark={dark}
+            photographerName={artist.display_name.toUpperCase()}
             exhibitionNumber={exNumberStr}
             exhibitionTitle={exhibition.title}
             exhibitionSubtitle={`— ${artist.display_name}`}
@@ -1247,7 +1485,10 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
 
   const [activePhoto, setActivePhoto] = useState<number | null>(null);
+  const [lightboxList, setLightboxList] = useState<Photograph[] | null>(null);
   const [showInfo, setShowInfo] = useState(true);
+  const touchStartXRef = useRef<number | null>(null);
+
   const [studioOpen, setStudioOpen] = useState(false);
   const [studioTab, setStudioTab] = useState<"photos" | "exhibitions">("photos");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1374,6 +1615,8 @@ export default function App() {
     }
     return assigned;
   }, [currentArtistPhotos, currentExhibition, currentExhibitionIndex]);
+
+  const activeLightboxPhotos = lightboxList ?? exhibitionPhotos;
 
   const myOwnExhibitions = useMemo(
     () => (user ? cloudExhibitions.filter((e) => e.user_id === user.id) : []),
@@ -1768,12 +2011,18 @@ export default function App() {
   useEffect(() => {
     const openPhoto = (event: Event) => {
       const detail = (event as CustomEvent<number>).detail;
+      setLightboxList(null);
       setActivePhoto(detail);
       setShowInfo(true);
     };
     window.addEventListener("open-photo", openPhoto);
     return () => window.removeEventListener("open-photo", openPhoto);
   }, []);
+
+  const closeLightbox = () => {
+    setActivePhoto(null);
+    setLightboxList(null);
+  };
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -1798,22 +2047,26 @@ export default function App() {
         return;
       }
 
-      if (activePhoto === null || exhibitionPhotos.length === 0) return;
-      if (event.key === "Escape") setActivePhoto(null);
+      if (activePhoto === null || activeLightboxPhotos.length === 0) return;
+      if (event.key === "Escape") closeLightbox();
       if (event.key === "ArrowRight")
-        setActivePhoto((prev) => (prev === null ? null : (prev + 1) % exhibitionPhotos.length));
+        setActivePhoto((prev) =>
+          prev === null ? null : (prev + 1) % activeLightboxPhotos.length,
+        );
       if (event.key === "ArrowLeft")
         setActivePhoto((prev) =>
-          prev === null ? null : (prev - 1 + exhibitionPhotos.length) % exhibitionPhotos.length,
+          prev === null
+            ? null
+            : (prev - 1 + activeLightboxPhotos.length) % activeLightboxPhotos.length,
         );
       if (event.key.toLowerCase() === "i") setShowInfo((prev) => !prev);
     };
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activePhoto, exhibitionPhotos.length, studioOpen, searchOpen, confirmDialog, confirmBusy]);
+  }, [activePhoto, activeLightboxPhotos.length, studioOpen, searchOpen, confirmDialog, confirmBusy]);
 
-  const currentLightboxPhoto = activePhoto === null ? null : exhibitionPhotos[activePhoto];
+  const currentLightboxPhoto = activePhoto === null ? null : activeLightboxPhotos[activePhoto];
 
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1873,21 +2126,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.3, ease }}
-            style={{
-              position: "fixed",
-              bottom: "24px",
-              left: "24px",
-              zIndex: 120,
-              background: "var(--ink)",
-              color: "var(--paper)",
-              padding: "12px 18px",
-              fontFamily: '"JetBrains Mono", monospace',
-              fontSize: "9px",
-              letterSpacing: "0.14em",
-              display: "flex",
-              alignItems: "center",
-              gap: "14px",
-            }}
+            className="studio-toast"
           >
             <span>{studioNotice}</span>
             <button
@@ -1942,7 +2181,7 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           >
-            DISCOVER
+            FEED
           </button>
 
           {user && (
@@ -1955,7 +2194,7 @@ export default function App() {
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
             >
-              MY GALLERY
+              GALLERY
             </button>
           )}
 
@@ -1973,7 +2212,7 @@ export default function App() {
             aria-label={`Switch to ${dark ? "daylight" : "darkroom"} theme`}
           >
             <i className="theme-mark" aria-hidden="true" />
-            {dark ? "DAYLIGHT" : "DARKROOM"}
+            <span>{dark ? "DAYLIGHT" : "DARKROOM"}</span>
           </button>
 
           {user ? (
@@ -1981,7 +2220,7 @@ export default function App() {
               <button className="studio-button" onClick={() => setStudioOpen(true)}>
                 STUDIO ({myOwnPhotos.length})
               </button>
-              <button className="text-button" onClick={handleLogout} title={user.email}>
+              <button className="text-button hide-mobile" onClick={handleLogout} title={user.email}>
                 SIGN OUT
               </button>
             </>
@@ -1999,12 +2238,25 @@ export default function App() {
             <DiscoverView
               artists={allArtists}
               allPhotos={allPhotos}
+              allExhibitions={allExhibitions}
               currentUserId={user?.id}
               onSelectArtist={(artistId) => {
                 setSelectedArtistId(artistId);
                 setView("artist");
                 syncUrl("artist", artistId);
                 window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onOpenExhibitionDirect={(artistId, exhibitionId) => {
+                setSelectedArtistId(artistId);
+                setActiveExhibitionId(exhibitionId);
+                setView("exhibition");
+                syncUrl("exhibition", artistId, exhibitionId);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onOpenFeedLightbox={(feedList, index) => {
+                setLightboxList(feedList);
+                setActivePhoto(index);
+                setShowInfo(true);
               }}
               onOpenStudioOrLogin={() => {
                 if (user) {
@@ -2212,9 +2464,18 @@ export default function App() {
                   <p className="eyebrow">CURATOR WORKBENCH</p>
                   <h2>Your Darkroom Studio</h2>
                 </div>
-                <button className="studio-close" onClick={() => setStudioOpen(false)}>
-                  CLOSE [ESC]
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button
+                    className="studio-close show-mobile-only"
+                    onClick={handleLogout}
+                    style={{ opacity: 0.65 }}
+                  >
+                    SIGN OUT
+                  </button>
+                  <button className="studio-close" onClick={() => setStudioOpen(false)}>
+                    CLOSE [ESC]
+                  </button>
+                </div>
               </div>
 
               <div
@@ -2304,7 +2565,7 @@ export default function App() {
 
                       {myOwnPhotos.length === 0 ? (
                         <p style={{ fontSize: "12px", color: "var(--muted)", padding: "18px 0" }}>
-                          No photographs uploaded yet. Click above to add your first works.
+                          No photographs uploaded yet. Tap above to add your first works.
                         </p>
                       ) : (
                         myOwnPhotos.map((photo, idx) => {
@@ -2691,7 +2952,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* ==================== Fullscreen Lightbox ==================== */}
+      {/* ==================== Fullscreen Lightbox (with Mobile Touch Swipe) ==================== */}
       <AnimatePresence>
         {currentLightboxPhoto && activePhoto !== null && (
           <motion.div
@@ -2700,7 +2961,24 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.45 }}
-            onClick={() => setActivePhoto(null)}
+            onClick={closeLightbox}
+            onTouchStart={(e) => {
+              touchStartXRef.current = e.touches[0].clientX;
+            }}
+            onTouchEnd={(e) => {
+              if (touchStartXRef.current === null) return;
+              const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+              touchStartXRef.current = null;
+              if (Math.abs(deltaX) > 48) {
+                if (deltaX < 0) {
+                  setActivePhoto((activePhoto + 1) % activeLightboxPhotos.length);
+                } else {
+                  setActivePhoto(
+                    (activePhoto - 1 + activeLightboxPhotos.length) % activeLightboxPhotos.length,
+                  );
+                }
+              }
+            }}
             role="dialog"
             aria-modal="true"
             aria-label={currentLightboxPhoto.title}
@@ -2708,13 +2986,13 @@ export default function App() {
             <div className="lightbox-bar" onClick={(event) => event.stopPropagation()}>
               <span>
                 {String(activePhoto + 1).padStart(2, "0")} /{" "}
-                {String(exhibitionPhotos.length).padStart(2, "0")}
+                {String(activeLightboxPhotos.length).padStart(2, "0")}
               </span>
               <div className="lightbox-controls">
                 <button onClick={() => setShowInfo((prev) => !prev)}>
                   {showInfo ? "HIDE INFO [I]" : "SHOW INFO [I]"}
                 </button>
-                <button onClick={() => setActivePhoto(null)}>CLOSE [ESC]</button>
+                <button onClick={closeLightbox}>CLOSE [ESC]</button>
               </div>
             </div>
 
@@ -2723,7 +3001,7 @@ export default function App() {
                 className="lightbox-nav prev"
                 onClick={() =>
                   setActivePhoto(
-                    (activePhoto - 1 + exhibitionPhotos.length) % exhibitionPhotos.length,
+                    (activePhoto - 1 + activeLightboxPhotos.length) % activeLightboxPhotos.length,
                   )
                 }
                 aria-label="Previous photograph"
@@ -2747,7 +3025,7 @@ export default function App() {
 
               <button
                 className="lightbox-nav next"
-                onClick={() => setActivePhoto((activePhoto + 1) % exhibitionPhotos.length)}
+                onClick={() => setActivePhoto((activePhoto + 1) % activeLightboxPhotos.length)}
                 aria-label="Next photograph"
               >
                 →
@@ -2759,8 +3037,13 @@ export default function App() {
                 <div>
                   <strong>{currentLightboxPhoto.title}</strong>
                   <span>{currentLightboxPhoto.year}</span>
+                  {currentLightboxPhoto.storyNote && (
+                    <p className="lightbox-story-note">{currentLightboxPhoto.storyNote}</p>
+                  )}
                 </div>
-                <p>{currentLightboxPhoto.specs}</p>
+                <p>
+                  {currentLightboxPhoto.credit} · {currentLightboxPhoto.specs}
+                </p>
               </div>
             )}
           </motion.div>

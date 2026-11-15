@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { toPng } from 'html-to-image';
+import { toBlob } from 'html-to-image';
 
 interface StoryPosterExportProps {
   dark: boolean;
@@ -27,32 +27,56 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
   const posterRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  const handleExport = async () => {
+  const handleShareToInstagram = async () => {
     if (!posterRef.current || isExporting) return;
     setIsExporting(true);
 
     try {
-      // 輸出 1080 x 1920 (pixelRatio: 2 會將 540x960 的畫布精準放大為 1080x1920 高解析度)
-      const dataUrl = await toPng(posterRef.current, {
+      const blob = await toBlob(posterRef.current, {
         cacheBust: true,
         pixelRatio: 2,
         width: 540,
         height: 960,
       });
 
+      if (!blob) {
+        throw new Error('Poster blob generation returned null');
+      }
+
+      const fileName = `${photographerName.toLowerCase().replace(/\s+/g, '-')}-story.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      // Native mobile share sheet -> direct to Instagram Stories
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `${exhibitionTitle} — ${photographerName}`,
+        });
+        return;
+      }
+
+      // Desktop / fallback: download poster PNG & launch Instagram on mobile
+      const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `${photographerName.toLowerCase().replace(/\s+/g, '-')}-exhibition-story.png`;
-      link.href = dataUrl;
+      link.download = fileName;
+      link.href = objectUrl;
       link.click();
-    } catch (err) {
-      console.error('海報生成失敗（若使用外部 Unsplash 圖片可能有跨域限制，請測試本地上傳的照片）:', err);
-      alert('海報匯出失敗：請先透過右上角 CURATE / STUDIO 上傳一張本地照片作為封面後再試一次！');
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
+
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile) {
+        window.location.href = 'instagram://story-camera';
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('IG Story export failed:', err);
+        alert('POSTER EXPORT FAILED: Please ensure the cover work is uploaded to your cloud gallery and try again.');
+      }
     } finally {
       setIsExporting(false);
     }
   };
 
-  // 配合畫廊白 / 暗房黑的主題配色
   const bg = dark ? '#0E0E0E' : '#F9F8F6';
   const fg = dark ? '#F2F0EC' : '#141414';
   const muted = dark ? '#8C8881' : '#73706B';
@@ -60,14 +84,14 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
 
   return (
     <>
-      {/* 觸發按鈕（完美融入你原本的 view-switcher 工具列） */}
       <button
-        onClick={handleExport}
+        onClick={handleShareToInstagram}
         disabled={isExporting}
+        className="ig-share-btn"
         style={{
           marginLeft: 'auto',
           letterSpacing: '0.16em',
-          fontSize: '11px',
+          fontSize: '10px',
           textTransform: 'uppercase',
           borderBottom: '1px solid currentColor',
           paddingBottom: '2px',
@@ -75,10 +99,10 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
           cursor: 'pointer',
         }}
       >
-        {isExporting ? 'GENERATING POSTER...' : 'EXPORT IG STORY ↓'}
+        {isExporting ? 'PREPARING IG STORY...' : 'SHARE TO IG STORY ↗'}
       </button>
 
-      {/* 隱藏在畫面外的 9:16 美術館海報畫布 (540 x 960 -> 匯出為 1080 x 1920) */}
+      {/* Hidden 9:16 Exhibition Story Poster Canvas (540x960 -> 1080x1920) */}
       <div
         style={{
           position: 'fixed',
@@ -104,7 +128,6 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
             fontFamily: 'Georgia, "Times New Roman", serif',
           }}
         >
-          {/* 海報頂部：攝影師署名與展覽編號 */}
           <div>
             <div
               style={{
@@ -124,7 +147,6 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
               <span>{exhibitionNumber}</span>
             </div>
 
-            {/* 展覽大標題 */}
             <h1
               style={{
                 fontSize: '58px',
@@ -152,7 +174,6 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
             </p>
           </div>
 
-          {/* 海報中央：主打作品與美術館說明牌 */}
           <div style={{ margin: '24px 0' }}>
             <div
               style={{
@@ -198,7 +219,6 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
             </div>
           </div>
 
-          {/* 海報底部：線上看展導流資訊 */}
           <div
             style={{
               borderTop: `1px solid ${border}`,
@@ -212,8 +232,8 @@ export const StoryPosterExport: React.FC<StoryPosterExportProps> = ({
               color: muted,
             }}
           >
-            <span>DIGITAL EXHIBITION ARCHIVE</span>
-            <span>VIEW FULL SERIES ↗</span>
+            <span>STUDIO FOLIO ARCHIVE</span>
+            <span>VIEW EXHIBITION ↗</span>
           </div>
         </div>
       </div>
